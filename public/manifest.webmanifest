@@ -1,0 +1,10 @@
+{
+  "name": "Habit Grow",
+  "short_name": "HabitGrow",
+  "description": "if-thenルールで習慣を小さく育てるアプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f7f4ed",
+  "theme_color": "#24745a",
+  "icons": []
+}
