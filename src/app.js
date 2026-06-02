@@ -25,11 +25,36 @@ const growthTypeLabels = {
 
 const frequencyLabels = {
   daily: "毎日",
-  weekdays: "平日",
+  weekdays: "平日（月〜金）",
+  business_days: "平日（祝日除く）",
+  weekends: "土日",
+  weekends_holidays: "土日祝",
+  holidays: "祝日のみ",
   weekly: "週指定",
 };
 
 const defaultBenefitTags = ["短期", "中期", "長期", "健康", "メンタル", "仕事", "学習", "睡眠", "自信", "将来"];
+
+const defaultJapanHolidays2026 = [
+  { date: "2026-01-01", name: "元日" },
+  { date: "2026-01-12", name: "成人の日" },
+  { date: "2026-02-11", name: "建国記念の日" },
+  { date: "2026-02-23", name: "天皇誕生日" },
+  { date: "2026-03-20", name: "春分の日" },
+  { date: "2026-04-29", name: "昭和の日" },
+  { date: "2026-05-03", name: "憲法記念日" },
+  { date: "2026-05-04", name: "みどりの日" },
+  { date: "2026-05-05", name: "こどもの日" },
+  { date: "2026-05-06", name: "振替休日" },
+  { date: "2026-07-20", name: "海の日" },
+  { date: "2026-08-11", name: "山の日" },
+  { date: "2026-09-21", name: "敬老の日" },
+  { date: "2026-09-22", name: "国民の休日" },
+  { date: "2026-09-23", name: "秋分の日" },
+  { date: "2026-10-12", name: "スポーツの日" },
+  { date: "2026-11-03", name: "文化の日" },
+  { date: "2026-11-23", name: "勤労感謝の日" },
+];
 
 const app = document.querySelector("#app");
 
@@ -97,6 +122,10 @@ function loadState() {
     ],
     logs: [],
     reviews: [],
+    settings: {
+      holidayRegion: "JP",
+      holidays: defaultJapanHolidays2026,
+    },
   };
 }
 
@@ -105,10 +134,28 @@ function normalizeState(rawState) {
     habits: Array.isArray(rawState?.habits) ? rawState.habits : [],
     logs: Array.isArray(rawState?.logs) ? rawState.logs : [],
     reviews: Array.isArray(rawState?.reviews) ? rawState.reviews : [],
+    settings: normalizeSettings(rawState?.settings),
   };
 
   normalized.habits = normalized.habits.map(normalizeHabit);
   return normalized;
+}
+
+function normalizeSettings(settings = {}) {
+  const holidays = Array.isArray(settings.holidays) && settings.holidays.length
+    ? settings.holidays
+    : defaultJapanHolidays2026;
+
+  return {
+    holidayRegion: settings.holidayRegion || "JP",
+    holidays: holidays
+      .filter((holiday) => holiday?.date)
+      .map((holiday) => ({
+        date: holiday.date,
+        name: holiday.name || "祝日",
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  };
 }
 
 function normalizeHabit(habit) {
@@ -196,6 +243,19 @@ function formatDate(dateKey) {
   }).format(date);
 }
 
+function isHoliday(dateKey) {
+  return state.settings.holidays.some((holiday) => holiday.date === dateKey);
+}
+
+function getHolidayName(dateKey) {
+  return state.settings.holidays.find((holiday) => holiday.date === dateKey)?.name || "";
+}
+
+function isWeekend(dateKey) {
+  const day = parseDate(dateKey).getDay();
+  return day === 0 || day === 6;
+}
+
 function escapeHtml(value = "") {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -211,9 +271,15 @@ function isTargetDate(habit, dateKey) {
 
   const date = parseDate(dateKey);
   const day = date.getDay();
+  const holiday = isHoliday(dateKey);
+  const weekend = day === 0 || day === 6;
 
   if (habit.frequencyType === "daily") return true;
   if (habit.frequencyType === "weekdays") return day >= 1 && day <= 5;
+  if (habit.frequencyType === "business_days") return day >= 1 && day <= 5 && !holiday;
+  if (habit.frequencyType === "weekends") return weekend;
+  if (habit.frequencyType === "weekends_holidays") return weekend || holiday;
+  if (habit.frequencyType === "holidays") return holiday;
   if (habit.frequencyType === "weekly") {
     const index = daysBetween(habit.startDate, dateKey);
     if (index < 0) return false;
@@ -597,6 +663,49 @@ function parseBenefits(text, previousHabit) {
   });
 }
 
+function formatHolidaysForTextarea() {
+  return state.settings.holidays
+    .map((holiday) => `${holiday.date}, ${holiday.name}`)
+    .join("\n");
+}
+
+function parseHolidays(text) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [datePart, ...nameParts] = line.split(",");
+      return {
+        date: datePart.trim(),
+        name: nameParts.join(",").trim() || "祝日",
+      };
+    })
+    .filter((holiday) => /^\d{4}-\d{2}-\d{2}$/.test(holiday.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function handleHolidaySubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const holidays = parseHolidays(String(formData.get("holidays")).trim());
+
+  if (!holidays.length) {
+    alert("祝日を1件以上、YYYY-MM-DD, 名前 の形式で入力してください。");
+    return;
+  }
+
+  state.settings.holidays = holidays;
+  saveState();
+  render();
+}
+
+function resetHolidays() {
+  state.settings.holidays = [...defaultJapanHolidays2026];
+  saveState();
+  render();
+}
+
 function formatBenefitsForTextarea(habit) {
   return normalizeBenefits(habit || {})
     .map((benefit) => {
@@ -670,6 +779,7 @@ function render() {
         ${renderToday()}
         ${renderHabits()}
         ${renderReviews()}
+        ${renderSettings()}
         <p class="footer-note">現在はこの端末のブラウザに保存しています。Supabase接続後はログイン同期に切り替えます。</p>
       </main>
       ${renderDrawer()}
@@ -693,6 +803,7 @@ function renderTopbar() {
         ${navButton("today", "今日")}
         ${navButton("habits", "習慣")}
         ${navButton("reviews", "レビュー")}
+        ${navButton("settings", "設定")}
       </nav>
     </header>
   `;
@@ -710,12 +821,14 @@ function renderToday() {
   const habits = todayHabits();
   const doneCount = habits.filter((habit) => getLog(habit.id, toDateKey(new Date()))?.status === "done").length;
   const completion = habits.length ? Math.round((doneCount / habits.length) * 100) : 0;
+  const today = toDateKey(new Date());
+  const todayHolidayName = getHolidayName(today);
 
   return `
     <section class="section ${activeView === "today" ? "is-active" : ""}">
       <div class="hero">
         <div class="hero-panel">
-          <p class="eyebrow">${formatDate(toDateKey(new Date()))}</p>
+          <p class="eyebrow">${formatDate(today)}${todayHolidayName ? ` / ${escapeHtml(todayHolidayName)}` : ""}</p>
           <h1>今日の一歩を、達成できる大きさで。</h1>
           <p class="lead">
             if-thenルールで迷う時間を減らし、最小達成条件で続ける入口を残します。
@@ -872,6 +985,45 @@ function renderReviews() {
   `;
 }
 
+function renderSettings() {
+  return `
+    <section class="section ${activeView === "settings" ? "is-active" : ""}">
+      <div class="toolbar">
+        <div>
+          <h2>設定</h2>
+          <p>祝日リストを編集すると、平日・土日祝・祝日の判定に反映されます。</p>
+        </div>
+      </div>
+      <div class="settings-layout">
+        <article class="card settings-card">
+          <h3>祝日リスト</h3>
+          <p class="rule">1行に1件、日付と名前をカンマ区切りで入力します。</p>
+          <form class="form" id="holiday-form">
+            <label class="field">
+              <span>祝日</span>
+              <textarea name="holidays" class="large-textarea" placeholder="2026-01-01, 元日">${escapeHtml(formatHolidaysForTextarea())}</textarea>
+            </label>
+            <div class="button-row">
+              <button class="btn primary" type="submit">祝日を保存</button>
+              <button class="btn" type="button" data-reset-holidays>2026年の日本祝日に戻す</button>
+            </div>
+          </form>
+        </article>
+        <article class="card settings-card">
+          <h3>頻度の判定</h3>
+          <div class="holiday-help">
+            <p><strong>平日（月〜金）</strong><span>祝日でも月〜金なら対象にします。</span></p>
+            <p><strong>平日（祝日除く）</strong><span>月〜金から祝日を外します。</span></p>
+            <p><strong>土日</strong><span>土曜・日曜だけ対象にします。</span></p>
+            <p><strong>土日祝</strong><span>土曜・日曜・祝日を対象にします。</span></p>
+            <p><strong>祝日のみ</strong><span>祝日リストにある日だけ対象にします。</span></p>
+          </div>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
 function renderReviewCard(habit) {
   const stats = getCurrentStats(habit);
   const suggestion = getSuggestion(stats.successRate, "good");
@@ -1022,7 +1174,11 @@ function renderDrawer() {
               <span>頻度</span>
               <select name="frequencyType">
                 ${option("daily", "毎日", habit?.frequencyType)}
-                ${option("weekdays", "平日", habit?.frequencyType)}
+                ${option("weekdays", "平日（月〜金）", habit?.frequencyType)}
+                ${option("business_days", "平日（祝日除く）", habit?.frequencyType)}
+                ${option("weekends", "土日", habit?.frequencyType)}
+                ${option("weekends_holidays", "土日祝", habit?.frequencyType)}
+                ${option("holidays", "祝日のみ", habit?.frequencyType)}
                 ${option("weekly", "週指定", habit?.frequencyType)}
               </select>
             </label>
@@ -1129,6 +1285,9 @@ function bindEvents() {
   });
 
   document.querySelector("#habit-form")?.addEventListener("submit", handleHabitSubmit);
+  document.querySelector("#holiday-form")?.addEventListener("submit", handleHolidaySubmit);
+
+  document.querySelector("[data-reset-holidays]")?.addEventListener("click", resetHolidays);
 
   document.querySelectorAll(".review-form").forEach((form) => {
     form.addEventListener("submit", (event) => {

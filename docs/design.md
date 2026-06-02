@@ -161,6 +161,16 @@ Supabase Auth のリダイレクトや環境変数の扱いやすさを考える
 - 成長タイプ
 - タグ付きメリット
 
+頻度:
+
+- 毎日
+- 平日（月〜金）
+- 平日（祝日除く）
+- 土日
+- 土日祝
+- 祝日のみ
+- 週指定
+
 成長タイプ:
 
 - 量を増やす
@@ -256,6 +266,12 @@ Supabase Auth のリダイレクトや環境変数の扱いやすさを考える
 - アプリからの提案
 - ユーザーの決定
 
+#### Settings
+
+- 祝日リスト
+- 祝日地域
+- 頻度判定の説明
+
 ## 8. Data Model
 
 ### 8.1 profiles
@@ -267,6 +283,8 @@ create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
   timezone text not null default 'Asia/Tokyo',
+  holiday_region text not null default 'JP',
+  holidays jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -286,7 +304,7 @@ create table habits (
   mid_benefit text,
   long_benefit text,
   benefits jsonb not null default '[]'::jsonb,
-  frequency_type text not null check (frequency_type in ('daily', 'weekdays', 'weekly')),
+  frequency_type text not null check (frequency_type in ('daily', 'weekdays', 'business_days', 'weekends', 'weekends_holidays', 'holidays', 'weekly')),
   weekly_target_count integer,
   review_interval_days integer not null check (review_interval_days in (7, 14)),
   growth_type text not null check (growth_type in ('amount', 'duration', 'frequency', 'difficulty', 'maintain')),
@@ -391,6 +409,16 @@ with check (user_id = auth.uid());
 初期実装ではフロントエンドで判定してよい。
 
 将来的にユーザー数が増えたら SQL function または Edge Function に切り出す。
+
+頻度判定:
+
+- `daily`: 毎日
+- `weekdays`: 月〜金。祝日でも対象
+- `business_days`: 月〜金から祝日を除外
+- `weekends`: 土日
+- `weekends_holidays`: 土日または祝日
+- `holidays`: 祝日のみ
+- `weekly`: 週指定日数
 
 ### 10.1.1 Routine Habits
 

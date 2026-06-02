@@ -565,6 +565,39 @@ h3 {
   padding: 18px;
 }
 
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 14px;
+}
+
+.settings-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.holiday-help {
+  display: grid;
+  gap: 10px;
+}
+
+.holiday-help p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbf8f0;
+}
+
+.holiday-help span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .review-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -678,7 +711,8 @@ h3 {
   .hero,
   .grid,
   .form-grid,
-  .review-stats {
+  .review-stats,
+  .settings-layout {
     grid-template-columns: 1fr;
   }
 

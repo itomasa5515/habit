@@ -2,6 +2,8 @@ create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
   timezone text not null default 'Asia/Tokyo',
+  holiday_region text not null default 'JP',
+  holidays jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -19,7 +21,7 @@ create table if not exists habits (
   mid_benefit text,
   long_benefit text,
   benefits jsonb not null default '[]'::jsonb,
-  frequency_type text not null check (frequency_type in ('daily', 'weekdays', 'weekly')),
+  frequency_type text not null check (frequency_type in ('daily', 'weekdays', 'business_days', 'weekends', 'weekends_holidays', 'holidays', 'weekly')),
   weekly_target_count integer,
   review_interval_days integer not null check (review_interval_days in (7, 14)),
   growth_type text not null check (growth_type in ('amount', 'duration', 'frequency', 'difficulty', 'maintain')),
