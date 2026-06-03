@@ -34,6 +34,7 @@ const frequencyLabels = {
 };
 
 const defaultBenefitTags = ["短期", "中期", "長期", "健康", "メンタル", "仕事", "学習", "睡眠", "自信", "将来"];
+const reviewIntervalPresets = [7, 14, 21, 30];
 
 const defaultJapanHolidays2026 = [
   { date: "2026-01-01", name: "元日" },
@@ -782,6 +783,7 @@ function handleHabitSubmit(event) {
   const benefits = parseBenefits(String(formData.get("benefits")).trim(), previousHabit);
   const minimumStepNumber = Number(formData.get("minimumStepNumber") || 1);
   const minimumStep = steps[Math.min(Math.max(minimumStepNumber, 1), steps.length) - 1];
+  const reviewIntervalDays = getReviewIntervalDays(formData);
 
   const habit = {
     id: editingHabitId || crypto.randomUUID(),
@@ -798,7 +800,7 @@ function handleHabitSubmit(event) {
     benefits,
     frequencyType: String(formData.get("frequencyType")),
     weeklyTargetCount: Number(formData.get("weeklyTargetCount") || 1),
-    reviewIntervalDays: Number(formData.get("reviewIntervalDays")),
+    reviewIntervalDays,
     growthType: "maintain",
     currentTargetValue: null,
     currentTargetUnit: "",
@@ -826,6 +828,26 @@ function handleHabitSubmit(event) {
   saveState();
   closeDrawer();
   render();
+}
+
+function getReviewIntervalDays(formData) {
+  const preset = String(formData.get("reviewIntervalPreset") || "7");
+  const custom = Number(formData.get("reviewIntervalCustom") || 0);
+
+  if (preset === "custom") {
+    return Number.isFinite(custom) && custom > 0 ? Math.round(custom) : 7;
+  }
+
+  const days = Number(preset);
+  return Number.isFinite(days) && days > 0 ? days : 7;
+}
+
+function syncReviewCustomInput(form) {
+  const preset = form?.querySelector("[name='reviewIntervalPreset']");
+  const custom = form?.querySelector("[name='reviewIntervalCustom']");
+  if (!preset || !custom) return;
+
+  custom.disabled = preset.value !== "custom";
 }
 
 function parseSteps(text, previousHabit) {
@@ -1694,6 +1716,8 @@ function renderDrawer() {
   const today = toDateKey(new Date());
   const benefitsText = habit ? formatBenefitsForTextarea(habit) : "";
   const minimumStepNumber = habit ? Math.max(1, getHabitSteps(habit).findIndex((step) => step.id === habit.minimumStepId) + 1) : 1;
+  const reviewIntervalDays = Number(habit?.reviewIntervalDays || 7);
+  const reviewPreset = reviewIntervalPresets.includes(reviewIntervalDays) ? String(reviewIntervalDays) : "custom";
 
   return `
     <div class="drawer" role="dialog" aria-modal="true" aria-label="習慣フォーム">
@@ -1752,13 +1776,22 @@ function renderDrawer() {
               <input name="weeklyTargetCount" type="number" min="1" max="7" value="${habit?.weeklyTargetCount || 3}" />
             </label>
           </div>
-          <label class="field">
-            <span>レビュー周期</span>
-            <select name="reviewIntervalDays">
-              ${option("7", "7日", String(habit?.reviewIntervalDays || 7))}
-              ${option("14", "14日", String(habit?.reviewIntervalDays || 7))}
-            </select>
-          </label>
+          <div class="form-grid">
+            <label class="field">
+              <span>レビュー周期</span>
+              <select name="reviewIntervalPreset">
+                ${option("7", "1週間", reviewPreset)}
+                ${option("14", "2週間", reviewPreset)}
+                ${option("21", "3週間", reviewPreset)}
+                ${option("30", "30日", reviewPreset)}
+                ${option("custom", "カスタム", reviewPreset)}
+              </select>
+            </label>
+            <label class="field">
+              <span>カスタム日数</span>
+              <input name="reviewIntervalCustom" type="number" min="1" step="1" value="${reviewPreset === "custom" ? reviewIntervalDays : ""}" placeholder="例: 10" ${reviewPreset === "custom" ? "" : "disabled"} />
+            </label>
+          </div>
           <label class="field">
             <span>メリットライブラリ</span>
             <textarea name="benefits" class="large-textarea" placeholder="例: 朝から自己肯定感が上がる #短期 #自信&#10;将来の健康不安が減る #長期 #健康&#10;仕事前に頭がすっきりする #短期 #仕事">${escapeHtml(benefitsText)}</textarea>
@@ -1856,6 +1889,11 @@ function bindEvents() {
 
   document.querySelector("#habit-form")?.addEventListener("submit", handleHabitSubmit);
   document.querySelector("#habit-form")?.addEventListener("click", handleHabitFormClick);
+  document.querySelector("#habit-form")?.addEventListener("change", (event) => {
+    if (event.target.name === "reviewIntervalPreset") {
+      syncReviewCustomInput(event.currentTarget);
+    }
+  });
   document.querySelector("#holiday-form")?.addEventListener("submit", handleHolidaySubmit);
 
   document.querySelector("[data-reset-holidays]")?.addEventListener("click", resetHolidays);

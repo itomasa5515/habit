@@ -24,7 +24,7 @@ create table if not exists habits (
   benefits jsonb not null default '[]'::jsonb,
   frequency_type text not null check (frequency_type in ('daily', 'weekdays', 'business_days', 'weekends', 'weekends_holidays', 'holidays', 'weekly')),
   weekly_target_count integer,
-  review_interval_days integer not null check (review_interval_days in (7, 14)),
+  review_interval_days integer not null check (review_interval_days > 0),
   growth_type text not null check (growth_type in ('amount', 'duration', 'frequency', 'difficulty', 'maintain')),
   current_target_value numeric,
   current_target_unit text,

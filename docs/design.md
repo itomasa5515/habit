@@ -88,7 +88,7 @@
 - 今日の習慣一覧
 - 達成/未達の記録
 - 達成履歴の表示
-- 7日/14日ごとのレビュー
+- 1週間/2週間/3週間/30日/カスタム周期でのレビュー
 - 達成率に基づく調整提案
 
 ### 4.2 Not Included In MVP
@@ -177,6 +177,14 @@ Supabase Auth のリダイレクトや環境変数の扱いやすさを考える
 - 土日祝
 - 祝日のみ
 - 週指定
+
+レビュー周期:
+
+- 1週間
+- 2週間
+- 3週間
+- 30日
+- カスタム日数
 
 ステップごとの成長タイプ:
 
@@ -316,7 +324,7 @@ create table habits (
   benefits jsonb not null default '[]'::jsonb,
   frequency_type text not null check (frequency_type in ('daily', 'weekdays', 'business_days', 'weekends', 'weekends_holidays', 'holidays', 'weekly')),
   weekly_target_count integer,
-  review_interval_days integer not null check (review_interval_days in (7, 14)),
+  review_interval_days integer not null check (review_interval_days > 0),
   growth_type text not null check (growth_type in ('amount', 'duration', 'frequency', 'difficulty', 'maintain')),
   current_target_value numeric,
   current_target_unit text,
