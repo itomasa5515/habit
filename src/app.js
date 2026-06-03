@@ -95,7 +95,8 @@ function loadState() {
             ],
           },
         ],
-        minimumSuccess: "首を10秒だけ回す",
+        minimumStepId: null,
+        minimumSuccess: "水を一杯飲む",
         shortBenefit: "体が起きて、午前中の重さが減る",
         midBenefit: "肩こりが軽くなり、集中しやすくなる",
         longBenefit: "疲れにくい体で、やりたいことに時間を使える",
@@ -179,13 +180,35 @@ function normalizeHabit(habit) {
       ];
 
   const benefits = normalizeBenefits(habit);
+  const minimumStepId = getNormalizedMinimumStepId(habit, steps);
 
   return {
     ...habit,
     habitMode: habit.habitMode || (steps.length > 1 ? "routine" : "single"),
     steps,
+    minimumStepId,
+    minimumSuccess: habit.minimumSuccess || getMinimumStepLabel(steps, minimumStepId),
     benefits,
   };
+}
+
+function getNormalizedMinimumStepId(habit, steps) {
+  if (habit.minimumStepId && steps.some((step) => step.id === habit.minimumStepId)) {
+    return habit.minimumStepId;
+  }
+
+  if (habit.minimumSuccess) {
+    const matchedStep = steps.find((step) => getStepLabel(step).includes(habit.minimumSuccess) || step.title === habit.minimumSuccess);
+    if (matchedStep) return matchedStep.id;
+  }
+
+  return steps[0]?.id || "";
+}
+
+function getMinimumStepLabel(steps, minimumStepId) {
+  const index = steps.findIndex((step) => step.id === minimumStepId);
+  if (index < 0) return "最初のステップ";
+  return `${index + 1}. ${getStepLabel(steps[index])}`;
 }
 
 function normalizeStep(step, habit = {}) {
@@ -358,10 +381,21 @@ function getLogDisplayStatus(log, habit) {
   const steps = getHabitSteps(habit);
   const completed = getCompletedStepIds(log, habit).length;
   if (completed > 0) {
-    return { label: `${completed}/${steps.length}`, className: "partial" };
+    const minimumCleared = isMinimumCleared(habit, getCompletedStepIds(log, habit));
+    return { label: `${completed}/${steps.length}${minimumCleared ? " 最小OK" : ""}`, className: "partial" };
   }
 
   return { label: statusLabels.missed, className: "missed" };
+}
+
+function isMinimumCleared(habit, completedStepIds) {
+  const steps = getHabitSteps(habit);
+  const minimumIndex = steps.findIndex((step) => step.id === habit.minimumStepId);
+  if (minimumIndex < 0) return completedStepIds.length > 0;
+
+  return steps
+    .slice(0, minimumIndex + 1)
+    .every((step) => completedStepIds.includes(getCompletionId(step)));
 }
 
 function upsertLog(habitId, status, extra = {}) {
@@ -476,6 +510,7 @@ function getReviewStats(habit, periodStart, periodEnd) {
   const steps = getHabitSteps(habit);
   let targetDays = 0;
   let doneDays = 0;
+  let minimumDoneDays = 0;
   let startedDays = 0;
   let skippedDays = 0;
   const stepDoneCounts = steps.map(() => 0);
@@ -501,6 +536,7 @@ function getReviewStats(habit, periodStart, periodEnd) {
     const completedStepIds = getCompletedStepIds(log, habit);
     const branchSelections = getBranchSelections(log);
     if (completedStepIds.length > 0) startedDays += 1;
+    if (isMinimumCleared(habit, completedStepIds)) minimumDoneDays += 1;
     if (completedStepIds.length === steps.length && steps.length > 0) doneDays += 1;
 
     steps.forEach((step, index) => {
@@ -525,6 +561,7 @@ function getReviewStats(habit, periodStart, periodEnd) {
   }
 
   const successRate = targetDays ? Math.round((doneDays / targetDays) * 100) : 0;
+  const minimumRate = targetDays ? Math.round((minimumDoneDays / targetDays) * 100) : 0;
   const startRate = targetDays ? Math.round((startedDays / targetDays) * 100) : 0;
   const stepStats = steps.map((step, index) => ({
     ...step,
@@ -537,9 +574,11 @@ function getReviewStats(habit, periodStart, periodEnd) {
   return {
     targetDays,
     doneDays,
+    minimumDoneDays,
     startedDays,
     skippedDays,
     successRate,
+    minimumRate,
     startRate,
     stepStats,
     branchStats,
@@ -648,8 +687,10 @@ function createReview(habitId, perceivedDifficulty, userDecision) {
     periodEnd,
     targetDays: stats.targetDays,
     doneDays: stats.doneDays,
+    minimumDoneDays: stats.minimumDoneDays,
     startedDays: stats.startedDays,
     successRate: stats.successRate,
+    minimumRate: stats.minimumRate,
     startRate: stats.startRate,
     bottleneck: stats.bottleneck,
     branchStats: stats.branchStats,
@@ -696,6 +737,8 @@ function handleHabitSubmit(event) {
   const previousHabit = state.habits.find((item) => item.id === editingHabitId);
   const steps = parseSteps(String(formData.get("steps")).trim(), previousHabit);
   const benefits = parseBenefits(String(formData.get("benefits")).trim(), previousHabit);
+  const minimumStepNumber = Number(formData.get("minimumStepNumber") || 1);
+  const minimumStep = steps[Math.min(Math.max(minimumStepNumber, 1), steps.length) - 1];
 
   const habit = {
     id: editingHabitId || crypto.randomUUID(),
@@ -704,7 +747,8 @@ function handleHabitSubmit(event) {
     thenAction: String(formData.get("thenAction")).trim(),
     habitMode: String(formData.get("habitMode")),
     steps,
-    minimumSuccess: String(formData.get("minimumSuccess")).trim(),
+    minimumStepId: minimumStep?.id || "",
+    minimumSuccess: minimumStep ? getMinimumStepLabel(steps, minimumStep.id) : "",
     shortBenefit: benefits.find((benefit) => benefit.tags.includes("短期"))?.text || benefits[0]?.text || "",
     midBenefit: benefits.find((benefit) => benefit.tags.includes("中期"))?.text || "",
     longBenefit: benefits.find((benefit) => benefit.tags.includes("長期"))?.text || "",
@@ -721,8 +765,8 @@ function handleHabitSubmit(event) {
     updatedAt: now,
   };
 
-  if (!habit.title || !habit.ifTrigger || !habit.minimumSuccess || !habit.steps.length) {
-    alert("習慣名、if条件、ステップ、最小達成条件は入力してください。");
+  if (!habit.title || !habit.ifTrigger || !habit.minimumStepId || !habit.steps.length) {
+    alert("習慣名、if条件、ステップ、最小達成ステップは入力してください。");
     return;
   }
 
@@ -1041,6 +1085,7 @@ function renderTodayCard(habit) {
   const completedStepIds = getCompletedStepIds(log, habit);
   const branchSelections = getBranchSelections(log);
   const displayStatus = getLogDisplayStatus(log, habit);
+  const minimumLabel = getMinimumStepLabel(steps, habit.minimumStepId);
 
   return `
     <article class="card habit-card">
@@ -1054,7 +1099,7 @@ function renderTodayCard(habit) {
       <div class="tag-list">
         <span class="tag">${escapeHtml(frequencyLabels[habit.frequencyType])}</span>
         <span class="tag">${habit.habitMode === "routine" ? "ルーティン" : "単発"}</span>
-        <span class="tag blue">最小: ${escapeHtml(habit.minimumSuccess)}</span>
+        <span class="tag blue">最小: ${escapeHtml(minimumLabel)}</span>
         <span class="tag accent">目標: ${escapeHtml(targetLabel(habit))}</span>
       </div>
       <div class="step-list">
@@ -1078,12 +1123,13 @@ function renderTodayCard(habit) {
 }
 
 function renderTodayStep(habit, step, index, completedStepIds, branchSelections) {
+  const minimumMark = step.id === habit.minimumStepId ? `<span class="minimum-badge">最小達成</span>` : "";
   if (step.type === "choice") {
     return `
       <div class="step-item choice-step">
         <span class="step-index">${index + 1}</span>
         <div>
-          <p class="choice-title">${escapeHtml(step.title)}</p>
+          <p class="choice-title">${escapeHtml(step.title)} ${minimumMark}</p>
           <div class="choice-options">
             ${step.options
               .map(
@@ -1112,7 +1158,7 @@ function renderTodayStep(habit, step, index, completedStepIds, branchSelections)
     <label class="step-item">
       <input type="checkbox" data-step-toggle="${habit.id}" data-step-id="${step.id}" ${completedStepIds.includes(step.id) ? "checked" : ""} />
       <span class="step-index">${index + 1}</span>
-      <span>${escapeHtml(step.title)}</span>
+      <span>${escapeHtml(step.title)} ${minimumMark}</span>
     </label>
   `;
 }
@@ -1245,6 +1291,7 @@ function renderReviewCard(habit) {
       <div class="review-stats">
         <div class="review-stat"><span>対象日</span><strong>${stats.targetDays}</strong></div>
         <div class="review-stat"><span>開始率</span><strong>${stats.startRate}%</strong></div>
+        <div class="review-stat"><span>最小達成率</span><strong>${stats.minimumRate}%</strong></div>
         <div class="review-stat"><span>完了率</span><strong>${stats.successRate}%</strong></div>
       </div>
       <div class="progress">
@@ -1371,6 +1418,7 @@ function renderDrawer() {
   const today = toDateKey(new Date());
   const stepsText = habit ? formatStepsForTextarea(habit) : "";
   const benefitsText = habit ? formatBenefitsForTextarea(habit) : "";
+  const minimumStepNumber = habit ? Math.max(1, getHabitSteps(habit).findIndex((step) => step.id === habit.minimumStepId) + 1) : 1;
 
   return `
     <div class="drawer" role="dialog" aria-modal="true" aria-label="習慣フォーム">
@@ -1407,8 +1455,9 @@ function renderDrawer() {
             <input name="thenAction" value="${escapeHtml(habit?.thenAction || "")}" placeholder="未入力ならステップから自動作成します" />
           </label>
           <label class="field">
-            <span>最小達成条件</span>
-            <input name="minimumSuccess" value="${escapeHtml(habit?.minimumSuccess || "")}" placeholder="例: 首を10秒だけ回す" required />
+            <span>最小達成ステップ</span>
+            <input name="minimumStepNumber" type="number" min="1" value="${minimumStepNumber}" required />
+            <small>ステップ欄の何番目まで完了したら「最小達成」にするかを指定します。</small>
           </label>
           <div class="form-grid">
             <label class="field">

@@ -27,6 +27,8 @@
 
 記録上の達成判定は最小達成条件を満たしたかで行う。
 
+ルーティン習慣では、最小達成条件を文章1つではなく「何番目のステップまで完了したら最小達成か」として設定する。
+
 ### 3.2 If-Then Rule
 
 習慣は以下の形式で登録する。
@@ -80,6 +82,7 @@
 - 条件分岐つきルーティンの登録
 - ルーティンのつまずきポイント可視化
 - 最小達成条件の登録
+- ルーティンの最小達成ステップ設定
 - タグ付きメリットライブラリの登録
 - 今日の習慣一覧
 - 達成/未達の記録
@@ -157,6 +160,7 @@ Supabase Auth のリダイレクトや環境変数の扱いやすさを考える
 - if 条件
 - then 行動
 - 最小達成条件
+- ルーティンの場合は最小達成ステップ番号
 - 頻度
 - レビュー周期
 - 成長タイプ
@@ -300,6 +304,9 @@ create table habits (
   title text not null,
   if_trigger text not null,
   then_action text not null,
+  habit_mode text not null default 'single' check (habit_mode in ('single', 'routine')),
+  steps jsonb not null default '[]'::jsonb,
+  minimum_step_id text,
   minimum_success text not null,
   short_benefit text,
   mid_benefit text,

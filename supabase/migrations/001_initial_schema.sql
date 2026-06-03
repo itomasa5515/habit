@@ -16,6 +16,7 @@ create table if not exists habits (
   then_action text not null,
   habit_mode text not null default 'single' check (habit_mode in ('single', 'routine')),
   steps jsonb not null default '[]'::jsonb,
+  minimum_step_id text,
   minimum_success text not null,
   short_benefit text,
   mid_benefit text,
