@@ -82,10 +82,18 @@ function loadState() {
         thenAction: "肩と背中を3分伸ばす",
         habitMode: "routine",
         steps: [
-          { id: crypto.randomUUID(), title: "水を一杯飲む" },
-          { id: crypto.randomUUID(), title: "体重計に乗る" },
-          { id: crypto.randomUUID(), title: "着替える" },
-          { id: crypto.randomUUID(), title: "3分ストレッチする" },
+          { id: crypto.randomUUID(), type: "task", title: "水を一杯飲む" },
+          { id: crypto.randomUUID(), type: "task", title: "体重計に乗る" },
+          { id: crypto.randomUUID(), type: "task", title: "着替える" },
+          {
+            id: crypto.randomUUID(),
+            type: "choice",
+            title: "天気",
+            options: [
+              { id: crypto.randomUUID(), label: "晴れ", action: "3分散歩する" },
+              { id: crypto.randomUUID(), label: "雨", action: "3分瞑想する" },
+            ],
+          },
         ],
         minimumSuccess: "首を10秒だけ回す",
         shortBenefit: "体が起きて、午前中の重さが減る",
@@ -161,13 +169,11 @@ function normalizeSettings(settings = {}) {
 function normalizeHabit(habit) {
   const existingSteps = Array.isArray(habit.steps) ? habit.steps : [];
   const steps = existingSteps.length
-    ? existingSteps.map((step) => ({
-        id: step.id || crypto.randomUUID(),
-        title: step.title || step.label || habit.thenAction || habit.title,
-      }))
+    ? existingSteps.map((step) => normalizeStep(step, habit))
     : [
         {
           id: crypto.randomUUID(),
+          type: "task",
           title: habit.thenAction || habit.title || "この習慣を行う",
         },
       ];
@@ -179,6 +185,29 @@ function normalizeHabit(habit) {
     habitMode: habit.habitMode || (steps.length > 1 ? "routine" : "single"),
     steps,
     benefits,
+  };
+}
+
+function normalizeStep(step, habit = {}) {
+  if (step.type === "choice" || Array.isArray(step.options)) {
+    return {
+      id: step.id || crypto.randomUUID(),
+      type: "choice",
+      title: step.title || step.label || "分岐",
+      options: Array.isArray(step.options)
+        ? step.options.map((option) => ({
+            id: option.id || crypto.randomUUID(),
+            label: option.label || "条件",
+            action: option.action || option.title || "",
+          }))
+        : [],
+    };
+  }
+
+  return {
+    id: step.id || crypto.randomUUID(),
+    type: "task",
+    title: step.title || step.label || habit.thenAction || habit.title || "この習慣を行う",
   };
 }
 
@@ -298,12 +327,27 @@ function getHabitSteps(habit) {
   return normalizeHabit(habit).steps;
 }
 
+function getStepLabel(step) {
+  if (step.type === "choice") {
+    return `${step.title}: ${step.options.map((option) => `${option.label}→${option.action}`).join(" / ")}`;
+  }
+  return step.title;
+}
+
+function getCompletionId(step) {
+  return step.id;
+}
+
 function getCompletedStepIds(log, habit) {
   const steps = getHabitSteps(habit);
   if (!log) return [];
   if (Array.isArray(log.completedStepIds)) return log.completedStepIds;
-  if (log.status === "done") return steps.map((step) => step.id);
+  if (log.status === "done") return steps.map(getCompletionId);
   return [];
+}
+
+function getBranchSelections(log) {
+  return log?.branchSelections && typeof log.branchSelections === "object" ? log.branchSelections : {};
 }
 
 function getLogDisplayStatus(log, habit) {
@@ -327,13 +371,17 @@ function upsertLog(habitId, status, extra = {}) {
   const existing = getLog(habitId, logDate);
   const completedStepIds =
     extra.completedStepIds ||
-    (status === "done" ? steps.map((step) => step.id) : status === "missed" ? [] : existing?.completedStepIds || []);
+    (status === "done" ? steps.map(getCompletionId) : status === "missed" ? [] : existing?.completedStepIds || []);
+  const branchSelections =
+    extra.branchSelections ||
+    (status === "done" ? getDoneBranchSelections(steps, existing) : status === "missed" ? {} : getBranchSelections(existing));
   const payload = {
     id: existing?.id || crypto.randomUUID(),
     habitId,
     logDate,
     status,
     completedStepIds,
+    branchSelections,
     note: extra.note || existing?.note || "",
     missedReason: extra.missedReason || existing?.missedReason || "",
     updatedAt: new Date().toISOString(),
@@ -348,6 +396,15 @@ function upsertLog(habitId, status, extra = {}) {
 
   saveState();
   render();
+}
+
+function getDoneBranchSelections(steps, existingLog) {
+  const existingSelections = getBranchSelections(existingLog);
+  return Object.fromEntries(
+    steps
+      .filter((step) => step.type === "choice" && step.options.length)
+      .map((step) => [step.id, existingSelections[step.id] || step.options[0].id]),
+  );
 }
 
 function toggleStep(habitId, stepId) {
@@ -367,10 +424,30 @@ function toggleStep(habitId, stepId) {
 
   const completedStepIds = steps
     .filter((step) => completed.has(step.id))
-    .map((step) => step.id);
+    .map(getCompletionId);
   const status = completedStepIds.length === steps.length ? "done" : "missed";
 
-  upsertLog(habitId, status, { completedStepIds });
+  upsertLog(habitId, status, { completedStepIds, branchSelections: getBranchSelections(existing) });
+}
+
+function selectBranchOption(habitId, stepId, optionId) {
+  const habit = state.habits.find((item) => item.id === habitId);
+  if (!habit) return;
+
+  const today = toDateKey(new Date());
+  const steps = getHabitSteps(habit);
+  const existing = getLog(habitId, today);
+  const completed = new Set(getCompletedStepIds(existing, habit));
+  const branchSelections = { ...getBranchSelections(existing), [stepId]: optionId };
+
+  completed.add(stepId);
+
+  const completedStepIds = steps
+    .filter((step) => completed.has(getCompletionId(step)))
+    .map(getCompletionId);
+  const status = completedStepIds.length === steps.length ? "done" : "missed";
+
+  upsertLog(habitId, status, { completedStepIds, branchSelections });
 }
 
 function deleteHabit(habitId) {
@@ -403,6 +480,14 @@ function getReviewStats(habit, periodStart, periodEnd) {
   let skippedDays = 0;
   const stepDoneCounts = steps.map(() => 0);
   const transitionCounts = steps.slice(1).map(() => ({ from: 0, to: 0 }));
+  const branchOptionCounts = Object.fromEntries(
+    steps
+      .filter((step) => step.type === "choice")
+      .map((step) => [
+        step.id,
+        Object.fromEntries(step.options.map((option) => [option.id, { selected: 0, completed: 0 }])),
+      ]),
+  );
 
   for (let dateKey = periodStart; dateKey <= periodEnd; dateKey = addDays(dateKey, 1)) {
     if (!isTargetDate(habit, dateKey)) continue;
@@ -414,17 +499,25 @@ function getReviewStats(habit, periodStart, periodEnd) {
 
     targetDays += 1;
     const completedStepIds = getCompletedStepIds(log, habit);
+    const branchSelections = getBranchSelections(log);
     if (completedStepIds.length > 0) startedDays += 1;
     if (completedStepIds.length === steps.length && steps.length > 0) doneDays += 1;
 
     steps.forEach((step, index) => {
-      if (completedStepIds.includes(step.id)) stepDoneCounts[index] += 1;
+      if (completedStepIds.includes(getCompletionId(step))) stepDoneCounts[index] += 1;
+      if (step.type === "choice" && branchSelections[step.id]) {
+        const optionStats = branchOptionCounts[step.id]?.[branchSelections[step.id]];
+        if (optionStats) {
+          optionStats.selected += 1;
+          if (completedStepIds.includes(getCompletionId(step))) optionStats.completed += 1;
+        }
+      }
     });
 
     for (let index = 1; index < steps.length; index += 1) {
-      if (completedStepIds.includes(steps[index - 1].id)) {
+      if (completedStepIds.includes(getCompletionId(steps[index - 1]))) {
         transitionCounts[index - 1].from += 1;
-        if (completedStepIds.includes(steps[index].id)) {
+        if (completedStepIds.includes(getCompletionId(steps[index]))) {
           transitionCounts[index - 1].to += 1;
         }
       }
@@ -438,6 +531,7 @@ function getReviewStats(habit, periodStart, periodEnd) {
     doneDays: stepDoneCounts[index],
     rate: targetDays ? Math.round((stepDoneCounts[index] / targetDays) * 100) : 0,
   }));
+  const branchStats = getBranchStats(steps, branchOptionCounts);
   const bottleneck = getBottleneck(steps, transitionCounts);
 
   return {
@@ -448,8 +542,27 @@ function getReviewStats(habit, periodStart, periodEnd) {
     successRate,
     startRate,
     stepStats,
+    branchStats,
     bottleneck,
   };
+}
+
+function getBranchStats(steps, branchOptionCounts) {
+  return steps
+    .filter((step) => step.type === "choice")
+    .map((step) => ({
+      id: step.id,
+      title: step.title,
+      options: step.options.map((option) => {
+        const stats = branchOptionCounts[step.id]?.[option.id] || { selected: 0, completed: 0 };
+        return {
+          ...option,
+          selectedDays: stats.selected,
+          completedDays: stats.completed,
+          completionRate: stats.selected ? Math.round((stats.completed / stats.selected) * 100) : 0,
+        };
+      }),
+    }));
 }
 
 function getBottleneck(steps, transitionCounts) {
@@ -459,6 +572,8 @@ function getBottleneck(steps, transitionCounts) {
     .map((item, index) => ({
       fromStep: steps[index],
       toStep: steps[index + 1],
+      fromLabel: getStepLabel(steps[index]),
+      toLabel: getStepLabel(steps[index + 1]),
       attempts: item.from,
       passes: item.to,
       rate: item.from ? Math.round((item.to / item.from) * 100) : null,
@@ -537,6 +652,7 @@ function createReview(habitId, perceivedDifficulty, userDecision) {
     successRate: stats.successRate,
     startRate: stats.startRate,
     bottleneck: stats.bottleneck,
+    branchStats: stats.branchStats,
     perceivedDifficulty,
     appSuggestion,
     userDecision,
@@ -611,7 +727,7 @@ function handleHabitSubmit(event) {
   }
 
   if (!habit.thenAction) {
-    habit.thenAction = habit.steps.map((step) => step.title).join(" → ");
+    habit.thenAction = habit.steps.map(getStepLabel).join(" → ");
   }
 
   if (editingHabitId) {
@@ -632,13 +748,55 @@ function parseSteps(text, previousHabit) {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  return lines.map((title) => {
-    const existing = previousSteps.find((step) => step.title === title);
-    return {
+  const parsedSteps = [];
+  let currentChoice = null;
+
+  lines.forEach((line) => {
+    if (line.startsWith("?")) {
+      const title = line.replace(/^\?\s*/, "").trim() || "分岐";
+      const existing = previousSteps.find((step) => step.type === "choice" && step.title === title);
+      currentChoice = {
+        id: existing?.id || crypto.randomUUID(),
+        type: "choice",
+        title,
+        options: [],
+      };
+      parsedSteps.push(currentChoice);
+      return;
+    }
+
+    if (line.startsWith("-") && currentChoice) {
+      const optionText = line.replace(/^-\s*/, "").trim();
+      const separatorIndex = optionText.indexOf(":");
+      const label = separatorIndex >= 0 ? optionText.slice(0, separatorIndex).trim() : optionText;
+      const action = separatorIndex >= 0 ? optionText.slice(separatorIndex + 1).trim() : "";
+      const existingChoice = previousSteps.find((step) => step.id === currentChoice.id);
+      const existingOption = existingChoice?.options?.find((option) => option.label === label && option.action === action);
+      currentChoice.options.push({
+        id: existingOption?.id || crypto.randomUUID(),
+        label: label || "条件",
+        action,
+      });
+      return;
+    }
+
+    currentChoice = null;
+    const existing = previousSteps.find((step) => step.type !== "choice" && step.title === line);
+    parsedSteps.push({
       id: existing?.id || crypto.randomUUID(),
-      title,
-    };
+      type: "task",
+      title: line,
+    });
   });
+
+  return parsedSteps
+    .map((step) => {
+      if (step.type !== "choice") return step;
+      return {
+        ...step,
+        options: step.options.length ? step.options : [{ id: crypto.randomUUID(), label: "条件", action: "" }],
+      };
+    });
 }
 
 function parseBenefits(text, previousHabit) {
@@ -711,6 +869,17 @@ function formatBenefitsForTextarea(habit) {
     .map((benefit) => {
       const tags = benefit.tags.map((tag) => `#${tag}`).join(" ");
       return `${benefit.text}${tags ? ` ${tags}` : ""}`;
+    })
+    .join("\n");
+}
+
+function formatStepsForTextarea(habit) {
+  return getHabitSteps(habit)
+    .map((step) => {
+      if (step.type === "choice") {
+        return [`? ${step.title}`, ...step.options.map((option) => `- ${option.label}: ${option.action}`)].join("\n");
+      }
+      return step.title;
     })
     .join("\n");
 }
@@ -870,6 +1039,7 @@ function renderTodayCard(habit) {
   const stats = getCurrentStats(habit);
   const steps = getHabitSteps(habit);
   const completedStepIds = getCompletedStepIds(log, habit);
+  const branchSelections = getBranchSelections(log);
   const displayStatus = getLogDisplayStatus(log, habit);
 
   return `
@@ -889,15 +1059,7 @@ function renderTodayCard(habit) {
       </div>
       <div class="step-list">
         ${steps
-          .map(
-            (step, index) => `
-              <label class="step-item">
-                <input type="checkbox" data-step-toggle="${habit.id}" data-step-id="${step.id}" ${completedStepIds.includes(step.id) ? "checked" : ""} />
-                <span class="step-index">${index + 1}</span>
-                <span>${escapeHtml(step.title)}</span>
-              </label>
-            `,
-          )
+          .map((step, index) => renderTodayStep(habit, step, index, completedStepIds, branchSelections))
           .join("")}
       </div>
       ${renderBenefitLibrary(habit, { title: "今日やる理由", featured: true, limit: 3 })}
@@ -912,6 +1074,46 @@ function renderTodayCard(habit) {
         <button class="btn" data-log="${habit.id}" data-status="skipped">スキップ</button>
       </div>
     </article>
+  `;
+}
+
+function renderTodayStep(habit, step, index, completedStepIds, branchSelections) {
+  if (step.type === "choice") {
+    return `
+      <div class="step-item choice-step">
+        <span class="step-index">${index + 1}</span>
+        <div>
+          <p class="choice-title">${escapeHtml(step.title)}</p>
+          <div class="choice-options">
+            ${step.options
+              .map(
+                (option) => `
+                  <label class="choice-option">
+                    <input
+                      type="radio"
+                      name="branch-${habit.id}-${step.id}"
+                      data-branch-select="${habit.id}"
+                      data-step-id="${step.id}"
+                      data-option-id="${option.id}"
+                      ${branchSelections[step.id] === option.id ? "checked" : ""}
+                    />
+                    <span><strong>${escapeHtml(option.label)}</strong>: ${escapeHtml(option.action)}</span>
+                  </label>
+                `,
+              )
+              .join("")}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <label class="step-item">
+      <input type="checkbox" data-step-toggle="${habit.id}" data-step-id="${step.id}" ${completedStepIds.includes(step.id) ? "checked" : ""} />
+      <span class="step-index">${index + 1}</span>
+      <span>${escapeHtml(step.title)}</span>
+    </label>
   `;
 }
 
@@ -1049,6 +1251,7 @@ function renderReviewCard(habit) {
         <div class="progress-bar" style="width: ${stats.successRate}%"></div>
       </div>
       ${renderStepAnalysis(stats)}
+      ${renderBranchAnalysis(stats)}
       <div class="suggestion">${escapeHtml(getSuggestionText(suggestion, habit))}</div>
       <form class="review-form" data-review="${habit.id}">
         <div class="form-grid">
@@ -1090,18 +1293,56 @@ function renderStepAnalysis(stats) {
     <div class="step-analysis">
       <div class="step-analysis-header">
         <h3>ステップ別</h3>
-        <p>${stats.bottleneck ? `つまずき: ${escapeHtml(stats.bottleneck.fromStep.title)} → ${escapeHtml(stats.bottleneck.toStep.title)} (${stats.bottleneck.rate}%)` : "つまずきはまだ判定できません"}</p>
+        <p>${stats.bottleneck ? `つまずき: ${escapeHtml(stats.bottleneck.fromLabel)} → ${escapeHtml(stats.bottleneck.toLabel)} (${stats.bottleneck.rate}%)` : "つまずきはまだ判定できません"}</p>
       </div>
       <div class="step-bars">
         ${stats.stepStats
           .map(
             (step, index) => `
               <div class="step-bar-row">
-                <div class="step-bar-label">${index + 1}. ${escapeHtml(step.title)}</div>
+                <div class="step-bar-label">${index + 1}. ${escapeHtml(getStepLabel(step))}</div>
                 <div class="step-bar-track">
                   <div class="step-bar-fill" style="width: ${step.rate}%"></div>
                 </div>
                 <div class="step-bar-rate">${step.rate}%</div>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderBranchAnalysis(stats) {
+  const branchStats = stats.branchStats || [];
+  if (!branchStats.length) return "";
+
+  return `
+    <div class="step-analysis">
+      <div class="step-analysis-header">
+        <h3>分岐別</h3>
+        <p>その日に選んだ条件ごとの完了状況</p>
+      </div>
+      <div class="branch-analysis-list">
+        ${branchStats
+          .map(
+            (branch) => `
+              <div class="branch-analysis">
+                <p class="choice-title">${escapeHtml(branch.title)}</p>
+                ${branch.options
+                  .map(
+                    (option) => `
+                      <div class="step-bar-row">
+                        <div class="step-bar-label">${escapeHtml(option.label)}: ${escapeHtml(option.action || "行動未設定")}</div>
+                        <div class="step-bar-track">
+                          <div class="step-bar-fill" style="width: ${option.completionRate}%"></div>
+                        </div>
+                        <div class="step-bar-rate">${option.completedDays}/${option.selectedDays}</div>
+                      </div>
+                    `,
+                  )
+                  .join("")}
               </div>
             `,
           )
@@ -1128,7 +1369,7 @@ function targetLabel(habit) {
 function renderDrawer() {
   const habit = state.habits.find((item) => item.id === editingHabitId);
   const today = toDateKey(new Date());
-  const stepsText = habit ? getHabitSteps(habit).map((step) => step.title).join("\n") : "";
+  const stepsText = habit ? formatStepsForTextarea(habit) : "";
   const benefitsText = habit ? formatBenefitsForTextarea(habit) : "";
 
   return `
@@ -1159,7 +1400,7 @@ function renderDrawer() {
           </label>
           <label class="field">
             <span>ステップ</span>
-            <textarea name="steps" placeholder="例: 水を飲む&#10;体重計に乗る&#10;着替える&#10;散歩する" required>${escapeHtml(stepsText)}</textarea>
+            <textarea name="steps" placeholder="例: 朝起きる&#10;着替える&#10;? 天気&#10;- 晴れ: 散歩する&#10;- 雨: 瞑想する" required>${escapeHtml(stepsText)}</textarea>
           </label>
           <label class="field">
             <span>then行動の要約</span>
@@ -1273,6 +1514,12 @@ function bindEvents() {
   document.querySelectorAll("[data-step-toggle]").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
       toggleStep(checkbox.dataset.stepToggle, checkbox.dataset.stepId);
+    });
+  });
+
+  document.querySelectorAll("[data-branch-select]").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      selectBranchOption(radio.dataset.branchSelect, radio.dataset.stepId, radio.dataset.optionId);
     });
   });
 

@@ -40,6 +40,7 @@ create table if not exists habit_logs (
   log_date date not null,
   status text not null check (status in ('done', 'missed', 'skipped')),
   completed_step_ids text[] not null default '{}',
+  branch_selections jsonb not null default '{}'::jsonb,
   note text,
   missed_reason text check (missed_reason in ('forgot', 'busy', 'too_hard', 'condition', 'other')),
   created_at timestamptz not null default now(),

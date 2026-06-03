@@ -442,6 +442,10 @@ h3 {
   line-height: 1.45;
 }
 
+.step-item.choice-step {
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
 .step-item input {
   width: 18px;
   height: 18px;
@@ -458,6 +462,33 @@ h3 {
   color: var(--primary-strong);
   font-size: 12px;
   font-weight: 800;
+}
+
+.choice-title {
+  margin: 0 0 8px;
+  font-weight: 800;
+}
+
+.choice-options {
+  display: grid;
+  gap: 7px;
+}
+
+.choice-option {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.choice-option input {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  accent-color: var(--primary);
 }
 
 .list {
@@ -654,6 +685,16 @@ h3 {
 .step-bars {
   display: grid;
   gap: 10px;
+}
+
+.branch-analysis-list {
+  display: grid;
+  gap: 14px;
+}
+
+.branch-analysis {
+  display: grid;
+  gap: 8px;
 }
 
 .step-bar-row {

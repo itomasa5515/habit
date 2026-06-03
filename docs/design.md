@@ -77,6 +77,7 @@
 - if-then ルールの登録
 - 単発習慣 / ルーティン習慣の登録
 - ルーティンのステップ別記録
+- 条件分岐つきルーティンの登録
 - ルーティンのつまずきポイント可視化
 - 最小達成条件の登録
 - タグ付きメリットライブラリの登録
@@ -326,6 +327,8 @@ create table habit_logs (
   habit_id uuid not null references habits(id) on delete cascade,
   log_date date not null,
   status text not null check (status in ('done', 'missed', 'skipped')),
+  completed_step_ids text[] not null default '{}',
+  branch_selections jsonb not null default '{}'::jsonb,
   note text,
   missed_reason text check (missed_reason in ('forgot', 'busy', 'too_hard', 'condition', 'other')),
   created_at timestamptz not null default now(),
@@ -434,11 +437,24 @@ with check (user_id = auth.uid());
 ステップ4: 散歩する
 ```
 
+条件分岐は以下のテキスト記法で登録できる。
+
+```text
+朝起きる
+着替える
+? 天気
+- 晴れ: 散歩する
+- 雨: 瞑想する
+```
+
 日次ログには完了したステップIDを保存する。
 
 ```json
 {
-  "completedStepIds": ["step-1", "step-2"]
+  "completedStepIds": ["step-1", "step-2", "branch-weather"],
+  "branchSelections": {
+    "branch-weather": "sunny"
+  }
 }
 ```
 
@@ -448,6 +464,7 @@ with check (user_id = auth.uid());
 - 完了率: 最後のステップまで終えた日数 / 対象日数
 - ステップ別達成率
 - ステップ間通過率が最も低い接続
+- 分岐ごとの選択回数と完了回数
 
 例:
 
