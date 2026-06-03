@@ -82,13 +82,16 @@ function loadState() {
         thenAction: "肩と背中を3分伸ばす",
         habitMode: "routine",
         steps: [
-          { id: crypto.randomUUID(), type: "task", title: "水を一杯飲む" },
-          { id: crypto.randomUUID(), type: "task", title: "体重計に乗る" },
-          { id: crypto.randomUUID(), type: "task", title: "着替える" },
+          { id: crypto.randomUUID(), type: "task", title: "水を一杯飲む", growthType: "maintain", currentTargetValue: 1, currentTargetUnit: "杯" },
+          { id: crypto.randomUUID(), type: "task", title: "体重計に乗る", growthType: "maintain", currentTargetValue: 1, currentTargetUnit: "回" },
+          { id: crypto.randomUUID(), type: "task", title: "着替える", growthType: "maintain", currentTargetValue: 1, currentTargetUnit: "回" },
           {
             id: crypto.randomUUID(),
             type: "choice",
             title: "天気",
+            growthType: "duration",
+            currentTargetValue: 3,
+            currentTargetUnit: "分",
             options: [
               { id: crypto.randomUUID(), label: "晴れ", action: "3分散歩する" },
               { id: crypto.randomUUID(), label: "雨", action: "3分瞑想する" },
@@ -120,9 +123,9 @@ function loadState() {
         frequencyType: "daily",
         weeklyTargetCount: 7,
         reviewIntervalDays: 7,
-        growthType: "duration",
-        currentTargetValue: 3,
-        currentTargetUnit: "分",
+        growthType: "maintain",
+        currentTargetValue: null,
+        currentTargetUnit: "",
         status: "active",
         startDate: today,
         createdAt: new Date().toISOString(),
@@ -170,12 +173,15 @@ function normalizeSettings(settings = {}) {
 function normalizeHabit(habit) {
   const existingSteps = Array.isArray(habit.steps) ? habit.steps : [];
   const steps = existingSteps.length
-    ? existingSteps.map((step) => normalizeStep(step, habit))
+    ? existingSteps.map((step, index) => normalizeStep(step, habit, index))
     : [
         {
           id: crypto.randomUUID(),
           type: "task",
           title: habit.thenAction || habit.title || "この習慣を行う",
+          growthType: habit.growthType || "maintain",
+          currentTargetValue: habit.currentTargetValue || null,
+          currentTargetUnit: habit.currentTargetUnit || "",
         },
       ];
 
@@ -211,12 +217,19 @@ function getMinimumStepLabel(steps, minimumStepId) {
   return `${index + 1}. ${getStepLabel(steps[index])}`;
 }
 
-function normalizeStep(step, habit = {}) {
+function normalizeStep(step, habit = {}, index = 0) {
+  const growthType = step.growthType || (index === 0 ? habit.growthType : null) || "maintain";
+  const currentTargetValue = step.currentTargetValue ?? (index === 0 ? habit.currentTargetValue : null) ?? null;
+  const currentTargetUnit = step.currentTargetUnit ?? (index === 0 ? habit.currentTargetUnit : "") ?? "";
+
   if (step.type === "choice" || Array.isArray(step.options)) {
     return {
       id: step.id || crypto.randomUUID(),
       type: "choice",
       title: step.title || step.label || "分岐",
+      growthType,
+      currentTargetValue,
+      currentTargetUnit,
       options: Array.isArray(step.options)
         ? step.options.map((option) => ({
             id: option.id || crypto.randomUUID(),
@@ -231,6 +244,9 @@ function normalizeStep(step, habit = {}) {
     id: step.id || crypto.randomUUID(),
     type: "task",
     title: step.title || step.label || habit.thenAction || habit.title || "この習慣を行う",
+    growthType,
+    currentTargetValue,
+    currentTargetUnit,
   };
 }
 
@@ -644,8 +660,11 @@ function getSuggestion(successRate, perceivedDifficulty = "good") {
 
 function getSuggestionText(suggestion, habit) {
   if (suggestion === "increase") {
-    const next = getNextTarget(habit);
-    return `かなり安定しています。次は「${next.label}」くらいに小さく上げるのがよさそうです。`;
+    const nextTargets = getNextTargets(habit);
+    if (!nextTargets.length) return "かなり安定しています。成長対象のステップがなければ、今は維持でよさそうです。";
+    const first = nextTargets[0];
+    const suffix = nextTargets.length > 1 ? ` ほか${nextTargets.length - 1}件も候補です。` : "";
+    return `かなり安定しています。「${first.stepTitle}」を ${first.label} くらいに小さく上げるのがよさそうです。${suffix}`;
   }
   if (suggestion === "maintain") {
     return "達成率は十分です。負担感があるなら、今の目標を維持して定着を優先しましょう。";
@@ -656,18 +675,21 @@ function getSuggestionText(suggestion, habit) {
   return "今は目標を小さくするタイミングです。最小達成条件をさらに軽くして、戻りやすくしましょう。";
 }
 
-function getNextTarget(habit) {
-  const value = Number(habit.currentTargetValue || 0);
-  if (!value || habit.growthType === "maintain" || habit.growthType === "difficulty") {
-    return { value, label: "少し難しい条件" };
-  }
-
-  const raw = value * 1.1;
-  const rounded = habit.growthType === "duration" ? Math.max(1, Math.round(raw)) : Math.ceil(raw);
-  return {
-    value: rounded,
-    label: `${rounded}${habit.currentTargetUnit || ""}`,
-  };
+function getNextTargets(habit) {
+  return getHabitSteps(habit)
+    .map((step) => {
+      const value = Number(step.currentTargetValue || 0);
+      if (!value || step.growthType === "maintain" || step.growthType === "difficulty") return null;
+      const raw = value * 1.1;
+      const rounded = step.growthType === "duration" ? Math.max(1, Math.round(raw)) : Math.ceil(raw);
+      return {
+        stepId: step.id,
+        stepTitle: getStepLabel(step),
+        value: rounded,
+        label: `${rounded}${step.currentTargetUnit || ""}`,
+      };
+    })
+    .filter(Boolean);
 }
 
 function createReview(habitId, perceivedDifficulty, userDecision) {
@@ -701,11 +723,12 @@ function createReview(habitId, perceivedDifficulty, userDecision) {
   });
 
   if (userDecision === "increase") {
-    const next = getNextTarget(habit);
-    if (next.value) {
-      habit.currentTargetValue = next.value;
-      habit.updatedAt = new Date().toISOString();
-    }
+    const nextTargets = getNextTargets(habit);
+    habit.steps = getHabitSteps(habit).map((step) => {
+      const next = nextTargets.find((target) => target.stepId === step.id);
+      return next ? { ...step, currentTargetValue: next.value } : step;
+    });
+    habit.updatedAt = new Date().toISOString();
   }
 
   saveState();
@@ -733,7 +756,6 @@ function handleHabitSubmit(event) {
   const form = event.currentTarget;
   const formData = new FormData(form);
   const now = new Date().toISOString();
-  const targetValue = Number(formData.get("currentTargetValue"));
   const previousHabit = state.habits.find((item) => item.id === editingHabitId);
   const steps = parseStepFields(form, previousHabit);
   const benefits = parseBenefits(String(formData.get("benefits")).trim(), previousHabit);
@@ -756,9 +778,9 @@ function handleHabitSubmit(event) {
     frequencyType: String(formData.get("frequencyType")),
     weeklyTargetCount: Number(formData.get("weeklyTargetCount") || 1),
     reviewIntervalDays: Number(formData.get("reviewIntervalDays")),
-    growthType: String(formData.get("growthType")),
-    currentTargetValue: Number.isFinite(targetValue) ? targetValue : null,
-    currentTargetUnit: String(formData.get("currentTargetUnit")).trim(),
+    growthType: "maintain",
+    currentTargetValue: null,
+    currentTargetUnit: "",
     status: String(formData.get("status")),
     startDate: String(formData.get("startDate")),
     createdAt: previousHabit?.createdAt || now,
@@ -851,6 +873,10 @@ function parseStepFields(form, previousHabit) {
     .map((card) => {
       const type = card.dataset.stepType;
       const stepId = card.dataset.stepId || crypto.randomUUID();
+      const targetValue = Number(card.querySelector("[data-step-target-value]")?.value || "");
+      const growthType = card.querySelector("[data-step-growth-type]")?.value || "maintain";
+      const currentTargetValue = Number.isFinite(targetValue) && targetValue > 0 ? targetValue : null;
+      const currentTargetUnit = card.querySelector("[data-step-target-unit]")?.value.trim() || "";
 
       if (type === "choice") {
         const title = card.querySelector("[data-choice-title]")?.value.trim() || "分岐";
@@ -873,6 +899,9 @@ function parseStepFields(form, previousHabit) {
           id: previousStep?.id || stepId,
           type: "choice",
           title,
+          growthType,
+          currentTargetValue,
+          currentTargetUnit,
           options: options.length ? options : [{ id: crypto.randomUUID(), label: "条件", action: "" }],
         };
       }
@@ -884,6 +913,9 @@ function parseStepFields(form, previousHabit) {
         id: previousStep?.id || stepId,
         type: "task",
         title,
+        growthType,
+        currentTargetValue,
+        currentTargetUnit,
       };
     })
     .filter(Boolean);
@@ -1001,6 +1033,7 @@ function renderStepEditorCard(step, index) {
           <span>分岐名</span>
           <input data-choice-title value="${escapeHtml(step.title || "")}" placeholder="例: 天気" />
         </label>
+        ${renderStepGrowthFields(step)}
         <div class="choice-option-editor-list">
           ${(step.options?.length ? step.options : [{ id: crypto.randomUUID(), label: "", action: "" }])
             .map((option) => renderChoiceOptionEditor(option))
@@ -1021,6 +1054,30 @@ function renderStepEditorCard(step, index) {
       <label class="field">
         <span>やること</span>
         <input data-step-title value="${escapeHtml(step.title || "")}" placeholder="例: 水を飲む" />
+      </label>
+      ${renderStepGrowthFields(step)}
+    </div>
+  `;
+}
+
+function renderStepGrowthFields(step) {
+  return `
+    <div class="step-growth-grid">
+      <label class="field">
+        <span>成長タイプ</span>
+        <select data-step-growth-type>
+          ${Object.entries(growthTypeLabels)
+            .map(([value, label]) => option(value, label, step.growthType || "maintain"))
+            .join("")}
+        </select>
+      </label>
+      <label class="field">
+        <span>目標値</span>
+        <input data-step-target-value type="number" min="0" step="0.1" value="${step.currentTargetValue || ""}" placeholder="例: 10" />
+      </label>
+      <label class="field">
+        <span>単位</span>
+        <input data-step-target-unit value="${escapeHtml(step.currentTargetUnit || "")}" placeholder="例: 分、回、ページ" />
       </label>
     </div>
   `;
@@ -1284,7 +1341,7 @@ function renderTodayCard(habit) {
         <span class="tag">${escapeHtml(frequencyLabels[habit.frequencyType])}</span>
         <span class="tag">${habit.habitMode === "routine" ? "ルーティン" : "単発"}</span>
         <span class="tag blue">最小: ${escapeHtml(minimumLabel)}</span>
-        <span class="tag accent">目標: ${escapeHtml(targetLabel(habit))}</span>
+        <span class="tag accent">${escapeHtml(targetLabel(habit))}</span>
       </div>
       <div class="step-list">
         ${steps
@@ -1308,12 +1365,13 @@ function renderTodayCard(habit) {
 
 function renderTodayStep(habit, step, index, completedStepIds, branchSelections) {
   const minimumMark = step.id === habit.minimumStepId ? `<span class="minimum-badge">最小達成</span>` : "";
+  const stepTarget = renderStepTarget(step);
   if (step.type === "choice") {
     return `
       <div class="step-item choice-step">
         <span class="step-index">${index + 1}</span>
         <div>
-          <p class="choice-title">${escapeHtml(step.title)} ${minimumMark}</p>
+          <p class="choice-title">${escapeHtml(step.title)} ${minimumMark} ${stepTarget}</p>
           <div class="choice-options">
             ${step.options
               .map(
@@ -1342,7 +1400,7 @@ function renderTodayStep(habit, step, index, completedStepIds, branchSelections)
     <label class="step-item">
       <input type="checkbox" data-step-toggle="${habit.id}" data-step-id="${step.id}" ${completedStepIds.includes(step.id) ? "checked" : ""} />
       <span class="step-index">${index + 1}</span>
-      <span>${escapeHtml(step.title)} ${minimumMark}</span>
+      <span>${escapeHtml(step.title)} ${minimumMark} ${stepTarget}</span>
     </label>
   `;
 }
@@ -1382,7 +1440,7 @@ function renderHabitListCard(habit) {
         <span class="tag">${escapeHtml(frequencyLabels[habit.frequencyType])}</span>
         <span class="tag">${habit.habitMode === "routine" ? `${getHabitSteps(habit).length}ステップ` : "単発"}</span>
         <span class="tag blue">${habit.reviewIntervalDays}日レビュー</span>
-        <span class="tag accent">${escapeHtml(growthTypeLabels[habit.growthType])}</span>
+        <span class="tag accent">${escapeHtml(targetLabel(habit))}</span>
         <span class="tag">${escapeHtml(habit.status)}</span>
       </div>
       ${renderBenefitLibrary(habit, { title: "理由ライブラリ" })}
@@ -1593,8 +1651,20 @@ function renderEmpty(title, body) {
 }
 
 function targetLabel(habit) {
-  if (!habit.currentTargetValue) return "設定なし";
-  return `${habit.currentTargetValue}${habit.currentTargetUnit || ""}`;
+  const targets = getHabitSteps(habit).filter((step) => step.currentTargetValue);
+  if (!targets.length) return "目標: 設定なし";
+  if (targets.length === 1) return `目標: ${getStepTargetText(targets[0])}`;
+  return `目標: ${targets.length}ステップ`;
+}
+
+function getStepTargetText(step) {
+  if (!step.currentTargetValue) return "";
+  return `${step.currentTargetValue}${step.currentTargetUnit || ""} / ${growthTypeLabels[step.growthType] || "維持"}`;
+}
+
+function renderStepTarget(step) {
+  const text = getStepTargetText(step);
+  return text ? `<span class="step-target">${escapeHtml(text)}</span>` : "";
 }
 
 function renderDrawer() {
@@ -1660,33 +1730,13 @@ function renderDrawer() {
               <input name="weeklyTargetCount" type="number" min="1" max="7" value="${habit?.weeklyTargetCount || 3}" />
             </label>
           </div>
-          <div class="form-grid">
-            <label class="field">
-              <span>レビュー周期</span>
-              <select name="reviewIntervalDays">
-                ${option("7", "7日", String(habit?.reviewIntervalDays || 7))}
-                ${option("14", "14日", String(habit?.reviewIntervalDays || 7))}
-              </select>
-            </label>
-            <label class="field">
-              <span>成長タイプ</span>
-              <select name="growthType">
-                ${Object.entries(growthTypeLabels)
-                  .map(([value, label]) => option(value, label, habit?.growthType || "duration"))
-                  .join("")}
-              </select>
-            </label>
-          </div>
-          <div class="form-grid">
-            <label class="field">
-              <span>現在の目標値</span>
-              <input name="currentTargetValue" type="number" min="0" step="0.1" value="${habit?.currentTargetValue || ""}" placeholder="例: 3" />
-            </label>
-            <label class="field">
-              <span>単位</span>
-              <input name="currentTargetUnit" value="${escapeHtml(habit?.currentTargetUnit || "")}" placeholder="例: 分、回、ページ" />
-            </label>
-          </div>
+          <label class="field">
+            <span>レビュー周期</span>
+            <select name="reviewIntervalDays">
+              ${option("7", "7日", String(habit?.reviewIntervalDays || 7))}
+              ${option("14", "14日", String(habit?.reviewIntervalDays || 7))}
+            </select>
+          </label>
           <label class="field">
             <span>メリットライブラリ</span>
             <textarea name="benefits" class="large-textarea" placeholder="例: 朝から自己肯定感が上がる #短期 #自信&#10;将来の健康不安が減る #長期 #健康&#10;仕事前に頭がすっきりする #短期 #仕事">${escapeHtml(benefitsText)}</textarea>
