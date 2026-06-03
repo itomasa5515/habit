@@ -1375,9 +1375,10 @@ function renderTodayCard(habit) {
           <div class="progress-bar" style="width: ${stats.successRate}%"></div>
         </div>
       </div>
+      <p class="save-note">ステップや分岐を操作すると、その時点で保存されます。</p>
       <div class="button-row">
-        <button class="btn primary" data-log="${habit.id}" data-status="done">達成</button>
-        <button class="btn" data-log="${habit.id}" data-status="missed">未達</button>
+        <button class="btn primary" data-log="${habit.id}" data-status="done">すべて達成</button>
+        <button class="btn" data-log="${habit.id}" data-status="missed">すべて未達</button>
         <button class="btn" data-log="${habit.id}" data-status="skipped">スキップ</button>
       </div>
     </article>
