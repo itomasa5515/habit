@@ -500,6 +500,27 @@ function selectBranchOption(habitId, stepId, optionId) {
   upsertLog(habitId, status, { completedStepIds, branchSelections });
 }
 
+function clearBranchOption(habitId, stepId) {
+  const habit = state.habits.find((item) => item.id === habitId);
+  if (!habit) return;
+
+  const today = toDateKey(new Date());
+  const steps = getHabitSteps(habit);
+  const existing = getLog(habitId, today);
+  const completed = new Set(getCompletedStepIds(existing, habit));
+  const branchSelections = { ...getBranchSelections(existing) };
+
+  completed.delete(stepId);
+  delete branchSelections[stepId];
+
+  const completedStepIds = steps
+    .filter((step) => completed.has(getCompletionId(step)))
+    .map(getCompletionId);
+  const status = completedStepIds.length === steps.length ? "done" : "missed";
+
+  upsertLog(habitId, status, { completedStepIds, branchSelections });
+}
+
 function deleteHabit(habitId) {
   const habit = state.habits.find((item) => item.id === habitId);
   if (!habit) return;
@@ -1800,6 +1821,25 @@ function bindEvents() {
   });
 
   document.querySelectorAll("[data-branch-select]").forEach((radio) => {
+    radio.addEventListener("pointerdown", () => {
+      radio.dataset.wasChecked = radio.checked ? "true" : "false";
+    });
+
+    radio.addEventListener("keydown", (event) => {
+      if ((event.key === " " || event.key === "Enter") && radio.checked) {
+        event.preventDefault();
+        clearBranchOption(radio.dataset.branchSelect, radio.dataset.stepId);
+      }
+    });
+
+    radio.addEventListener("click", (event) => {
+      if (radio.dataset.wasChecked === "true") {
+        event.preventDefault();
+        radio.checked = false;
+        clearBranchOption(radio.dataset.branchSelect, radio.dataset.stepId);
+      }
+    });
+
     radio.addEventListener("change", () => {
       selectBranchOption(radio.dataset.branchSelect, radio.dataset.stepId, radio.dataset.optionId);
     });
