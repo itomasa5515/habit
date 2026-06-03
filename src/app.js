@@ -735,7 +735,7 @@ function handleHabitSubmit(event) {
   const now = new Date().toISOString();
   const targetValue = Number(formData.get("currentTargetValue"));
   const previousHabit = state.habits.find((item) => item.id === editingHabitId);
-  const steps = parseSteps(String(formData.get("steps")).trim(), previousHabit);
+  const steps = parseStepFields(form, previousHabit);
   const benefits = parseBenefits(String(formData.get("benefits")).trim(), previousHabit);
   const minimumStepNumber = Number(formData.get("minimumStepNumber") || 1);
   const minimumStep = steps[Math.min(Math.max(minimumStepNumber, 1), steps.length) - 1];
@@ -843,6 +843,52 @@ function parseSteps(text, previousHabit) {
     });
 }
 
+function parseStepFields(form, previousHabit) {
+  const previousSteps = Array.isArray(previousHabit?.steps) ? previousHabit.steps : [];
+  const cards = [...form.querySelectorAll("[data-step-editor-card]")];
+
+  return cards
+    .map((card) => {
+      const type = card.dataset.stepType;
+      const stepId = card.dataset.stepId || crypto.randomUUID();
+
+      if (type === "choice") {
+        const title = card.querySelector("[data-choice-title]")?.value.trim() || "分岐";
+        const previousStep = previousSteps.find((step) => step.id === stepId);
+        const options = [...card.querySelectorAll("[data-choice-option-editor]")]
+          .map((optionRow) => {
+            const optionId = optionRow.dataset.optionId || crypto.randomUUID();
+            const label = optionRow.querySelector("[data-option-label]")?.value.trim() || "条件";
+            const action = optionRow.querySelector("[data-option-action]")?.value.trim() || "";
+            const previousOption = previousStep?.options?.find((option) => option.id === optionId);
+            return {
+              id: previousOption?.id || optionId,
+              label,
+              action,
+            };
+          })
+          .filter((option) => option.label || option.action);
+
+        return {
+          id: previousStep?.id || stepId,
+          type: "choice",
+          title,
+          options: options.length ? options : [{ id: crypto.randomUUID(), label: "条件", action: "" }],
+        };
+      }
+
+      const title = card.querySelector("[data-step-title]")?.value.trim();
+      if (!title) return null;
+      const previousStep = previousSteps.find((step) => step.id === stepId);
+      return {
+        id: previousStep?.id || stepId,
+        type: "task",
+        title,
+      };
+    })
+    .filter(Boolean);
+}
+
 function parseBenefits(text, previousHabit) {
   const previousBenefits = Array.isArray(previousHabit?.benefits)
     ? previousHabit.benefits
@@ -926,6 +972,144 @@ function formatStepsForTextarea(habit) {
       return step.title;
     })
     .join("\n");
+}
+
+function renderStepEditor(habit) {
+  const steps = habit ? getHabitSteps(habit) : [{ id: crypto.randomUUID(), type: "task", title: "" }];
+
+  return `
+    <div class="step-editor" data-step-editor>
+      ${steps.map((step, index) => renderStepEditorCard(step, index)).join("")}
+      <div class="step-editor-actions">
+        <button class="btn" type="button" data-add-task-step>ステップを追加</button>
+        <button class="btn" type="button" data-add-choice-step>分岐を追加</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderStepEditorCard(step, index) {
+  if (step.type === "choice") {
+    return `
+      <div class="step-editor-card" data-step-editor-card data-step-type="choice" data-step-id="${step.id || crypto.randomUUID()}">
+        <div class="step-editor-card-header">
+          <span class="step-index">${index + 1}</span>
+          <strong>分岐ステップ</strong>
+          <button class="icon-btn" type="button" data-remove-step aria-label="ステップを削除">×</button>
+        </div>
+        <label class="field">
+          <span>分岐名</span>
+          <input data-choice-title value="${escapeHtml(step.title || "")}" placeholder="例: 天気" />
+        </label>
+        <div class="choice-option-editor-list">
+          ${(step.options?.length ? step.options : [{ id: crypto.randomUUID(), label: "", action: "" }])
+            .map((option) => renderChoiceOptionEditor(option))
+            .join("")}
+        </div>
+        <button class="btn" type="button" data-add-choice-option>選択肢を追加</button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="step-editor-card" data-step-editor-card data-step-type="task" data-step-id="${step.id || crypto.randomUUID()}">
+      <div class="step-editor-card-header">
+        <span class="step-index">${index + 1}</span>
+        <strong>通常ステップ</strong>
+        <button class="icon-btn" type="button" data-remove-step aria-label="ステップを削除">×</button>
+      </div>
+      <label class="field">
+        <span>やること</span>
+        <input data-step-title value="${escapeHtml(step.title || "")}" placeholder="例: 水を飲む" />
+      </label>
+    </div>
+  `;
+}
+
+function renderChoiceOptionEditor(option = {}) {
+  return `
+    <div class="choice-option-editor" data-choice-option-editor data-option-id="${option.id || crypto.randomUUID()}">
+      <label class="field">
+        <span>条件</span>
+        <input data-option-label value="${escapeHtml(option.label || "")}" placeholder="例: 晴れ" />
+      </label>
+      <label class="field">
+        <span>行動</span>
+        <input data-option-action value="${escapeHtml(option.action || "")}" placeholder="例: 散歩する" />
+      </label>
+      <button class="icon-btn" type="button" data-remove-choice-option aria-label="選択肢を削除">×</button>
+    </div>
+  `;
+}
+
+function addTaskStep(button) {
+  const editor = button.closest("[data-step-editor]");
+  const actions = editor?.querySelector(".step-editor-actions");
+  if (!editor || !actions) return;
+  actions.insertAdjacentHTML(
+    "beforebegin",
+    renderStepEditorCard({ id: crypto.randomUUID(), type: "task", title: "" }, editor.querySelectorAll("[data-step-editor-card]").length),
+  );
+  refreshStepEditorIndexes(editor);
+}
+
+function addChoiceStep(button) {
+  const editor = button.closest("[data-step-editor]");
+  const actions = editor?.querySelector(".step-editor-actions");
+  if (!editor || !actions) return;
+  actions.insertAdjacentHTML(
+    "beforebegin",
+    renderStepEditorCard(
+      {
+        id: crypto.randomUUID(),
+        type: "choice",
+        title: "",
+        options: [
+          { id: crypto.randomUUID(), label: "", action: "" },
+          { id: crypto.randomUUID(), label: "", action: "" },
+        ],
+      },
+      editor.querySelectorAll("[data-step-editor-card]").length,
+    ),
+  );
+  refreshStepEditorIndexes(editor);
+}
+
+function removeStep(button) {
+  const editor = button.closest("[data-step-editor]");
+  const cards = editor?.querySelectorAll("[data-step-editor-card]");
+  if (!editor || !cards?.length) return;
+  if (cards.length === 1) {
+    alert("ステップは1つ以上必要です。");
+    return;
+  }
+  button.closest("[data-step-editor-card]")?.remove();
+  refreshStepEditorIndexes(editor);
+}
+
+function addChoiceOption(button) {
+  const card = button.closest("[data-step-editor-card]");
+  const list = card?.querySelector(".choice-option-editor-list");
+  if (!list) return;
+  list.insertAdjacentHTML("beforeend", renderChoiceOptionEditor());
+}
+
+function removeChoiceOption(button) {
+  const list = button.closest(".choice-option-editor-list");
+  const options = list?.querySelectorAll("[data-choice-option-editor]");
+  if (!list || !options?.length) return;
+  if (options.length === 1) {
+    alert("分岐の選択肢は1つ以上必要です。");
+    return;
+  }
+  button.closest("[data-choice-option-editor]")?.remove();
+}
+
+function refreshStepEditorIndexes(editor) {
+  editor.querySelectorAll("[data-step-editor-card]").forEach((card, index) => {
+    const indexElement = card.querySelector(".step-index");
+    if (indexElement) indexElement.textContent = String(index + 1);
+  });
 }
 
 function getFeaturedBenefits(habit, maxCount = 3) {
@@ -1416,7 +1600,6 @@ function targetLabel(habit) {
 function renderDrawer() {
   const habit = state.habits.find((item) => item.id === editingHabitId);
   const today = toDateKey(new Date());
-  const stepsText = habit ? formatStepsForTextarea(habit) : "";
   const benefitsText = habit ? formatBenefitsForTextarea(habit) : "";
   const minimumStepNumber = habit ? Math.max(1, getHabitSteps(habit).findIndex((step) => step.id === habit.minimumStepId) + 1) : 1;
 
@@ -1446,10 +1629,10 @@ function renderDrawer() {
               ${option("routine", "ルーティン習慣", habit?.habitMode || "single")}
             </select>
           </label>
-          <label class="field">
+          <div class="field">
             <span>ステップ</span>
-            <textarea name="steps" placeholder="例: 朝起きる&#10;着替える&#10;? 天気&#10;- 晴れ: 散歩する&#10;- 雨: 瞑想する" required>${escapeHtml(stepsText)}</textarea>
-          </label>
+            ${renderStepEditor(habit)}
+          </div>
           <label class="field">
             <span>then行動の要約</span>
             <input name="thenAction" value="${escapeHtml(habit?.thenAction || "")}" placeholder="未入力ならステップから自動作成します" />
@@ -1581,6 +1764,7 @@ function bindEvents() {
   });
 
   document.querySelector("#habit-form")?.addEventListener("submit", handleHabitSubmit);
+  document.querySelector("#habit-form")?.addEventListener("click", handleHabitFormClick);
   document.querySelector("#holiday-form")?.addEventListener("submit", handleHolidaySubmit);
 
   document.querySelector("[data-reset-holidays]")?.addEventListener("click", resetHolidays);
@@ -1596,6 +1780,27 @@ function bindEvents() {
       );
     });
   });
+}
+
+function handleHabitFormClick(event) {
+  const target = event.target.closest("button");
+  if (!target) return;
+
+  if (target.matches("[data-add-task-step]")) {
+    addTaskStep(target);
+  } else if (target.matches("[data-add-choice-step]")) {
+    addChoiceStep(target);
+  } else if (target.matches("[data-remove-step]")) {
+    removeStep(target);
+  } else if (target.matches("[data-add-choice-option]")) {
+    addChoiceOption(target);
+  } else if (target.matches("[data-remove-choice-option]")) {
+    removeChoiceOption(target);
+  } else {
+    return;
+  }
+
+  event.preventDefault();
 }
 
 function promptMissedReason() {

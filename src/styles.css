@@ -429,6 +429,49 @@ h3 {
   gap: 8px;
 }
 
+.step-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.step-editor-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbf8f0;
+}
+
+.step-editor-card-header {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 40px;
+  gap: 10px;
+  align-items: center;
+}
+
+.step-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice-option-editor-list {
+  display: grid;
+  gap: 8px;
+}
+
+.choice-option-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid rgba(222, 216, 203, 0.85);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
 .step-item {
   display: grid;
   grid-template-columns: 20px 28px minmax(0, 1fr);
@@ -793,6 +836,10 @@ h3 {
   .step-analysis-header,
   .step-bar-row {
     align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .choice-option-editor {
     grid-template-columns: 1fr;
   }
 
