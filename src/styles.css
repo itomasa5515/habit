@@ -1173,8 +1173,11 @@ h3 {
     width: 100%;
   }
 
-  .btn {
+  .button-row .btn {
     flex: 1 1 120px;
+  }
+
+  .btn {
     min-height: 44px;
   }
 
