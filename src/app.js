@@ -224,12 +224,16 @@ function normalizeStep(step, habit = {}, index = 0) {
   const growthType = step.growthType || (index === 0 ? habit.growthType : null) || "maintain";
   const currentTargetValue = step.currentTargetValue ?? (index === 0 ? habit.currentTargetValue : null) ?? null;
   const currentTargetUnit = step.currentTargetUnit ?? (index === 0 ? habit.currentTargetUnit : "") ?? "";
+  const activeFrom = normalizeDateKey(step.activeFrom) || habit.startDate || toDateKey(new Date());
+  const activeUntil = normalizeDateKey(step.activeUntil);
 
   if (step.type === "choice" || Array.isArray(step.options)) {
     return {
       id: step.id || crypto.randomUUID(),
       type: "choice",
       title: step.title || step.label || "分岐",
+      activeFrom,
+      activeUntil,
       growthType,
       currentTargetValue,
       currentTargetUnit,
@@ -247,6 +251,8 @@ function normalizeStep(step, habit = {}, index = 0) {
     id: step.id || crypto.randomUUID(),
     type: "task",
     title: step.title || step.label || habit.thenAction || habit.title || "この習慣を行う",
+    activeFrom,
+    activeUntil,
     growthType,
     currentTargetValue,
     currentTargetUnit,
@@ -291,6 +297,13 @@ function toDateKey(date) {
 function parseDate(dateKey) {
   const [year, month, day] = dateKey.split("-").map(Number);
   return new Date(year, month - 1, day);
+}
+
+function normalizeDateKey(value) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+  const date = parseDate(text);
+  return toDateKey(date) === text ? text : "";
 }
 
 function addDays(dateKey, amount) {
@@ -385,6 +398,18 @@ function getHabitSteps(habit) {
   return normalizeHabit(habit).steps;
 }
 
+function getActiveHabitSteps(habit, dateKey) {
+  return getHabitSteps(habit).filter((step) => isStepActiveOn(step, dateKey));
+}
+
+function isStepActiveOn(step, dateKey) {
+  const activeFrom = normalizeDateKey(step.activeFrom);
+  const activeUntil = normalizeDateKey(step.activeUntil);
+  if (activeFrom && dateKey < activeFrom) return false;
+  if (activeUntil && dateKey > activeUntil) return false;
+  return true;
+}
+
 function getStepLabel(step) {
   if (step.type === "choice") {
     return `${step.title}: ${step.options.map((option) => `${option.label}→${option.action}`).join(" / ")}`;
@@ -396,10 +421,13 @@ function getCompletionId(step) {
   return step.id;
 }
 
-function getCompletedStepIds(log, habit) {
-  const steps = getHabitSteps(habit);
+function getCompletedStepIds(log, habit, dateKey = log?.logDate || toDateKey(new Date())) {
+  const steps = getActiveHabitSteps(habit, dateKey);
   if (!log) return [];
-  if (Array.isArray(log.completedStepIds)) return log.completedStepIds;
+  if (Array.isArray(log.completedStepIds)) {
+    const activeStepIds = new Set(steps.map(getCompletionId));
+    return log.completedStepIds.filter((stepId) => activeStepIds.has(stepId));
+  }
   if (log.status === "done") return steps.map(getCompletionId);
   return [];
 }
@@ -413,18 +441,18 @@ function getLogDisplayStatus(log, habit) {
   if (log.status === "skipped") return { label: statusLabels.skipped, className: "skipped" };
   if (log.status === "done") return { label: statusLabels.done, className: "done" };
 
-  const steps = getHabitSteps(habit);
-  const completed = getCompletedStepIds(log, habit).length;
+  const steps = getActiveHabitSteps(habit, log.logDate || toDateKey(new Date()));
+  const completed = getCompletedStepIds(log, habit, log.logDate || toDateKey(new Date())).length;
   if (completed > 0) {
-    const minimumCleared = isMinimumCleared(habit, getCompletedStepIds(log, habit));
+    const minimumCleared = isMinimumCleared(habit, getCompletedStepIds(log, habit, log.logDate || toDateKey(new Date())), log.logDate || toDateKey(new Date()));
     return { label: `${completed}/${steps.length}${minimumCleared ? " 最小OK" : ""}`, className: "partial" };
   }
 
   return { label: statusLabels.missed, className: "missed" };
 }
 
-function isMinimumCleared(habit, completedStepIds) {
-  const steps = getHabitSteps(habit);
+function isMinimumCleared(habit, completedStepIds, dateKey = toDateKey(new Date())) {
+  const steps = getActiveHabitSteps(habit, dateKey);
   const minimumIndex = steps.findIndex((step) => step.id === habit.minimumStepId);
   if (minimumIndex < 0) return completedStepIds.length > 0;
 
@@ -436,7 +464,7 @@ function isMinimumCleared(habit, completedStepIds) {
 function upsertLog(habitId, status, extra = {}) {
   const logDate = toDateKey(new Date());
   const habit = state.habits.find((item) => item.id === habitId);
-  const steps = habit ? getHabitSteps(habit) : [];
+  const steps = habit ? getActiveHabitSteps(habit, logDate) : [];
   const existing = getLog(habitId, logDate);
   const completedStepIds =
     extra.completedStepIds ||
@@ -481,7 +509,7 @@ function toggleStep(habitId, stepId) {
   if (!habit) return;
 
   const today = toDateKey(new Date());
-  const steps = getHabitSteps(habit);
+  const steps = getActiveHabitSteps(habit, today);
   const existing = getLog(habitId, today);
   const completed = new Set(getCompletedStepIds(existing, habit));
 
@@ -504,7 +532,7 @@ function selectBranchOption(habitId, stepId, optionId) {
   if (!habit) return;
 
   const today = toDateKey(new Date());
-  const steps = getHabitSteps(habit);
+  const steps = getActiveHabitSteps(habit, today);
   const existing = getLog(habitId, today);
   const completed = new Set(getCompletedStepIds(existing, habit));
   const branchSelections = { ...getBranchSelections(existing), [stepId]: optionId };
@@ -524,7 +552,7 @@ function clearBranchOption(habitId, stepId) {
   if (!habit) return;
 
   const today = toDateKey(new Date());
-  const steps = getHabitSteps(habit);
+  const steps = getActiveHabitSteps(habit, today);
   const existing = getLog(habitId, today);
   const completed = new Set(getCompletedStepIds(existing, habit));
   const branchSelections = { ...getBranchSelections(existing) };
@@ -569,6 +597,7 @@ function getReviewStats(habit, periodStart, periodEnd) {
   let minimumDoneDays = 0;
   let startedDays = 0;
   let skippedDays = 0;
+  const stepTargetCounts = steps.map(() => 0);
   const stepDoneCounts = steps.map(() => 0);
   const transitionCounts = steps.slice(1).map(() => ({ from: 0, to: 0 }));
   const branchOptionCounts = Object.fromEntries(
@@ -582,6 +611,9 @@ function getReviewStats(habit, periodStart, periodEnd) {
 
   for (let dateKey = periodStart; dateKey <= periodEnd; dateKey = addDays(dateKey, 1)) {
     if (!isTargetDate(habit, dateKey)) continue;
+    const activeSteps = getActiveHabitSteps(habit, dateKey);
+    if (!activeSteps.length) continue;
+
     const log = getLog(habit.id, dateKey);
     if (log?.status === "skipped") {
       skippedDays += 1;
@@ -589,13 +621,16 @@ function getReviewStats(habit, periodStart, periodEnd) {
     }
 
     targetDays += 1;
-    const completedStepIds = getCompletedStepIds(log, habit);
+    const completedStepIds = getCompletedStepIds(log, habit, dateKey);
     const branchSelections = getBranchSelections(log);
     if (completedStepIds.length > 0) startedDays += 1;
-    if (isMinimumCleared(habit, completedStepIds)) minimumDoneDays += 1;
-    if (completedStepIds.length === steps.length && steps.length > 0) doneDays += 1;
+    if (isMinimumCleared(habit, completedStepIds, dateKey)) minimumDoneDays += 1;
+    if (completedStepIds.length === activeSteps.length) doneDays += 1;
 
-    steps.forEach((step, index) => {
+    activeSteps.forEach((step) => {
+      const index = steps.findIndex((item) => item.id === step.id);
+      if (index < 0) return;
+      stepTargetCounts[index] += 1;
       if (completedStepIds.includes(getCompletionId(step))) stepDoneCounts[index] += 1;
       if (step.type === "choice" && branchSelections[step.id]) {
         const optionStats = branchOptionCounts[step.id]?.[branchSelections[step.id]];
@@ -607,6 +642,9 @@ function getReviewStats(habit, periodStart, periodEnd) {
     });
 
     for (let index = 1; index < steps.length; index += 1) {
+      if (!activeSteps.some((step) => step.id === steps[index - 1].id) || !activeSteps.some((step) => step.id === steps[index].id)) {
+        continue;
+      }
       if (completedStepIds.includes(getCompletionId(steps[index - 1]))) {
         transitionCounts[index - 1].from += 1;
         if (completedStepIds.includes(getCompletionId(steps[index]))) {
@@ -622,7 +660,8 @@ function getReviewStats(habit, periodStart, periodEnd) {
   const stepStats = steps.map((step, index) => ({
     ...step,
     doneDays: stepDoneCounts[index],
-    rate: targetDays ? Math.round((stepDoneCounts[index] / targetDays) * 100) : 0,
+    targetDays: stepTargetCounts[index],
+    rate: stepTargetCounts[index] ? Math.round((stepDoneCounts[index] / stepTargetCounts[index]) * 100) : 0,
   }));
   const branchStats = getBranchStats(steps, branchOptionCounts);
   const bottleneck = getBottleneck(steps, transitionCounts);
@@ -939,6 +978,7 @@ function parseStepFields(form, previousHabit) {
       const growthType = card.querySelector("[data-step-growth-type]")?.value || "maintain";
       const currentTargetValue = Number.isFinite(targetValue) && targetValue > 0 ? targetValue : null;
       const currentTargetUnit = card.querySelector("[data-step-target-unit]")?.value.trim() || "";
+      const activeFrom = normalizeDateKey(card.querySelector("[data-step-active-from]")?.value) || toDateKey(new Date());
 
       if (type === "choice") {
         const title = card.querySelector("[data-choice-title]")?.value.trim() || "分岐";
@@ -961,6 +1001,8 @@ function parseStepFields(form, previousHabit) {
           id: previousStep?.id || stepId,
           type: "choice",
           title,
+          activeFrom,
+          activeUntil: previousStep?.activeUntil || "",
           growthType,
           currentTargetValue,
           currentTargetUnit,
@@ -975,6 +1017,8 @@ function parseStepFields(form, previousHabit) {
         id: previousStep?.id || stepId,
         type: "task",
         title,
+        activeFrom,
+        activeUntil: previousStep?.activeUntil || "",
         growthType,
         currentTargetValue,
         currentTargetUnit,
@@ -1123,8 +1167,13 @@ function renderStepEditorCard(step, index) {
 }
 
 function renderStepGrowthFields(step) {
+  const activeFrom = normalizeDateKey(step.activeFrom) || toDateKey(new Date());
   return `
     <div class="step-growth-grid">
+      <label class="field">
+        <span>集計開始日</span>
+        <input data-step-active-from type="date" value="${escapeHtml(activeFrom)}" />
+      </label>
       <label class="field">
         <span>成長タイプ</span>
         <select data-step-growth-type>
@@ -1167,7 +1216,10 @@ function addTaskStep(button) {
   if (!editor || !actions) return;
   actions.insertAdjacentHTML(
     "beforebegin",
-    renderStepEditorCard({ id: crypto.randomUUID(), type: "task", title: "" }, editor.querySelectorAll("[data-step-editor-card]").length),
+    renderStepEditorCard(
+      { id: crypto.randomUUID(), type: "task", title: "", activeFrom: toDateKey(new Date()) },
+      editor.querySelectorAll("[data-step-editor-card]").length,
+    ),
   );
   refreshStepEditorIndexes(editor);
 }
@@ -1183,6 +1235,7 @@ function addChoiceStep(button) {
         id: crypto.randomUUID(),
         type: "choice",
         title: "",
+        activeFrom: toDateKey(new Date()),
         options: [
           { id: crypto.randomUUID(), label: "", action: "" },
           { id: crypto.randomUUID(), label: "", action: "" },
@@ -1279,6 +1332,7 @@ function todayHabits() {
   const today = toDateKey(new Date());
   return state.habits
     .filter((habit) => isTargetDate(habit, today))
+    .filter((habit) => getActiveHabitSteps(habit, today).length > 0)
     .sort((a, b) => compareTodayHabits(a, b, today));
 }
 
@@ -1296,7 +1350,7 @@ function getTodaySortRank(habit, dateKey) {
   const log = getLog(habit.id, dateKey);
   if (!log) return 0;
 
-  const hasProgress = getCompletedStepIds(log, habit).length > 0 || Object.keys(getBranchSelections(log)).length > 0;
+  const hasProgress = getCompletedStepIds(log, habit, dateKey).length > 0 || Object.keys(getBranchSelections(log)).length > 0;
   if (log.status === "done" || log.status === "skipped" || (log.status === "missed" && !hasProgress)) return 2;
   if (hasProgress) return 0;
   return 0;
@@ -1425,8 +1479,8 @@ function renderTodayCard(habit) {
   const today = toDateKey(new Date());
   const log = getLog(habit.id, today);
   const stats = getCurrentStats(habit);
-  const steps = getHabitSteps(habit);
-  const completedStepIds = getCompletedStepIds(log, habit);
+  const steps = getActiveHabitSteps(habit, today);
+  const completedStepIds = getCompletedStepIds(log, habit, today);
   const branchSelections = getBranchSelections(log);
   const displayStatus = getLogDisplayStatus(log, habit);
   const minimumLabel = getMinimumStepLabel(steps, habit.minimumStepId);
