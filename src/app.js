@@ -1279,6 +1279,7 @@ function render() {
         ${renderSettings()}
         <p class="footer-note">現在はこの端末のブラウザに保存しています。Supabase接続後はログイン同期に切り替えます。</p>
       </main>
+      ${renderBottomNav()}
       ${renderDrawer()}
     </div>
   `;
@@ -1303,6 +1304,17 @@ function renderTopbar() {
         ${navButton("settings", "設定")}
       </nav>
     </header>
+  `;
+}
+
+function renderBottomNav() {
+  return `
+    <nav class="bottom-nav" aria-label="スマホ用メイン">
+      ${navButton("today", "今日")}
+      ${navButton("habits", "習慣")}
+      ${navButton("reviews", "レビュー")}
+      ${navButton("settings", "設定")}
+    </nav>
   `;
 }
 
@@ -1370,17 +1382,33 @@ function renderTodayCard(habit) {
   const branchSelections = getBranchSelections(log);
   const displayStatus = getLogDisplayStatus(log, habit);
   const minimumLabel = getMinimumStepLabel(steps, habit.minimumStepId);
+  const mobileSummary = getMobileTodaySummary(habit, steps, completedStepIds);
 
   return `
     <article class="card habit-card">
       <div class="habit-card-header">
         <div>
           <h3 class="habit-title">${escapeHtml(habit.title)}</h3>
-          <p class="rule">もし ${escapeHtml(habit.ifTrigger)}、${escapeHtml(habit.thenAction)}</p>
+          <p class="rule desktop-detail">もし ${escapeHtml(habit.ifTrigger)}、${escapeHtml(habit.thenAction)}</p>
         </div>
         <div class="log-state ${displayStatus.className}">${displayStatus.label}</div>
       </div>
-      <div class="tag-list">
+      <div class="mobile-today-summary">
+        <div>
+          <span class="mobile-summary-label">今日</span>
+          <strong>${mobileSummary.completedCount}/${steps.length}</strong>
+        </div>
+        <div class="${mobileSummary.minimumCleared ? "is-good" : ""}">
+          <span class="mobile-summary-label">最小</span>
+          <strong>${mobileSummary.minimumText}</strong>
+        </div>
+      </div>
+      ${
+        mobileSummary.nextStep
+          ? `<p class="mobile-next-step"><span>次</span>${escapeHtml(mobileSummary.nextStep)}</p>`
+          : `<p class="mobile-next-step is-complete"><span>完了</span>今日のステップは終わっています</p>`
+      }
+      <div class="tag-list desktop-detail">
         <span class="tag">${escapeHtml(frequencyLabels[habit.frequencyType])}</span>
         <span class="tag">${habit.habitMode === "routine" ? "ルーティン" : "単発"}</span>
         <span class="tag blue">最小: ${escapeHtml(minimumLabel)}</span>
@@ -1391,13 +1419,30 @@ function renderTodayCard(habit) {
           .map((step, index) => renderTodayStep(habit, step, index, completedStepIds, branchSelections))
           .join("")}
       </div>
-      ${renderBenefitLibrary(habit, { title: "今日やる理由", featured: true, limit: 3 })}
-      <div>
+      <div class="desktop-detail">
+        ${renderBenefitLibrary(habit, { title: "今日やる理由", featured: true, limit: 3 })}
+      </div>
+      <div class="desktop-detail">
         <div class="progress" aria-label="今期の達成率">
           <div class="progress-bar" style="width: ${stats.successRate}%"></div>
         </div>
       </div>
-      <p class="save-note">ステップや分岐を操作すると、その時点で保存されます。</p>
+      <p class="save-note desktop-detail">ステップや分岐を操作すると、その時点で保存されます。</p>
+      <details class="mobile-details">
+        <summary>理由・詳細</summary>
+        <p class="rule">もし ${escapeHtml(habit.ifTrigger)}、${escapeHtml(habit.thenAction)}</p>
+        <div class="tag-list">
+          <span class="tag">${escapeHtml(frequencyLabels[habit.frequencyType])}</span>
+          <span class="tag">${habit.habitMode === "routine" ? "ルーティン" : "単発"}</span>
+          <span class="tag blue">最小: ${escapeHtml(minimumLabel)}</span>
+          <span class="tag accent">${escapeHtml(targetLabel(habit))}</span>
+        </div>
+        ${renderBenefitLibrary(habit, { title: "今日やる理由", featured: true, limit: 2 })}
+        <div class="progress" aria-label="今期の達成率">
+          <div class="progress-bar" style="width: ${stats.successRate}%"></div>
+        </div>
+        <p class="save-note">ステップや分岐を操作すると、その時点で保存されます。</p>
+      </details>
       <div class="button-row">
         <button class="btn primary" data-log="${habit.id}" data-status="done">すべて達成</button>
         <button class="btn" data-log="${habit.id}" data-status="missed">すべて未達</button>
@@ -1405,6 +1450,30 @@ function renderTodayCard(habit) {
       </div>
     </article>
   `;
+}
+
+function getMobileTodaySummary(habit, steps, completedStepIds) {
+  const completedSet = new Set(completedStepIds);
+  const minimumIndex = Math.max(0, steps.findIndex((step) => step.id === habit.minimumStepId));
+  const minimumCleared = steps
+    .slice(0, minimumIndex + 1)
+    .every((step) => completedSet.has(getCompletionId(step)));
+  const remainingToMinimum = steps
+    .slice(0, minimumIndex + 1)
+    .filter((step) => !completedSet.has(getCompletionId(step))).length;
+  const nextStep = steps.find((step) => !completedSet.has(getCompletionId(step)));
+
+  return {
+    completedCount: completedStepIds.length,
+    minimumCleared,
+    minimumText: minimumCleared ? "OK" : `あと${remainingToMinimum}`,
+    nextStep: nextStep ? getMobileStepAction(nextStep) : "",
+  };
+}
+
+function getMobileStepAction(step) {
+  if (step.type !== "choice") return step.title;
+  return `${step.title}を選ぶ`;
 }
 
 function renderTodayStep(habit, step, index, completedStepIds, branchSelections) {
