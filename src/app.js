@@ -62,6 +62,7 @@ const app = document.querySelector("#app");
 let state = loadState();
 let activeView = "today";
 let editingHabitId = null;
+let pendingCopiedHabitId = null;
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -826,8 +827,73 @@ function openDrawer(habitId = null) {
 }
 
 function closeDrawer() {
+  const copiedHabitId = pendingCopiedHabitId;
+  const shouldRemoveCopiedHabit = copiedHabitId && editingHabitId === copiedHabitId;
   editingHabitId = null;
+  pendingCopiedHabitId = null;
+
+  if (shouldRemoveCopiedHabit) {
+    state.habits = state.habits.filter((habit) => habit.id !== copiedHabitId);
+    saveState();
+    render();
+    return;
+  }
+
   document.querySelector(".drawer")?.classList.remove("is-open");
+}
+
+function duplicateHabit(habitId) {
+  const source = state.habits.find((item) => item.id === habitId);
+  if (!source) return;
+
+  const now = new Date().toISOString();
+  const today = toDateKey(new Date());
+  const sourceSteps = getHabitSteps(source);
+  const stepIdMap = new Map(sourceSteps.map((step) => [step.id, crypto.randomUUID()]));
+  const steps = sourceSteps.map((step) => duplicateStep(step, stepIdMap, today));
+  const minimumStepId = stepIdMap.get(source.minimumStepId) || steps[0]?.id || "";
+  const benefits = normalizeBenefits(source).map((benefit) => ({
+    ...benefit,
+    id: crypto.randomUUID(),
+    tags: [...benefit.tags],
+  }));
+
+  const copiedHabit = normalizeHabit({
+    ...source,
+    id: crypto.randomUUID(),
+    title: `${source.title} コピー`,
+    steps,
+    minimumStepId,
+    minimumSuccess: getMinimumStepLabel(steps, minimumStepId),
+    benefits,
+    status: "active",
+    startDate: today,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  state.habits.unshift(copiedHabit);
+  saveState();
+  pendingCopiedHabitId = copiedHabit.id;
+  openDrawer(copiedHabit.id);
+}
+
+function duplicateStep(step, stepIdMap, activeFrom) {
+  const duplicated = {
+    ...step,
+    id: stepIdMap.get(step.id) || crypto.randomUUID(),
+    activeFrom,
+    activeUntil: "",
+  };
+
+  if (step.type === "choice") {
+    duplicated.options = step.options.map((option) => ({
+      ...option,
+      id: crypto.randomUUID(),
+    }));
+  }
+
+  return duplicated;
 }
 
 function handleHabitSubmit(event) {
@@ -883,6 +949,7 @@ function handleHabitSubmit(event) {
     state.habits.unshift(habit);
   }
 
+  pendingCopiedHabitId = null;
   saveState();
   closeDrawer();
   render();
@@ -1668,6 +1735,7 @@ function renderHabitListCard(habit) {
       </div>
       <div class="button-row">
         <button class="btn" data-edit="${habit.id}">編集</button>
+        <button class="btn" data-duplicate="${habit.id}">コピー</button>
         <button class="btn danger" data-delete="${habit.id}">削除</button>
       </div>
     </article>
@@ -2063,6 +2131,10 @@ function bindEvents() {
 
   document.querySelectorAll("[data-edit]").forEach((button) => {
     button.addEventListener("click", () => openDrawer(button.dataset.edit));
+  });
+
+  document.querySelectorAll("[data-duplicate]").forEach((button) => {
+    button.addEventListener("click", () => duplicateHabit(button.dataset.duplicate));
   });
 
   document.querySelectorAll("[data-delete]").forEach((button) => {
