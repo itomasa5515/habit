@@ -1298,7 +1298,7 @@ function getTodaySortRank(habit, dateKey) {
 
   const hasProgress = getCompletedStepIds(log, habit).length > 0 || Object.keys(getBranchSelections(log)).length > 0;
   if (log.status === "done" || log.status === "skipped" || (log.status === "missed" && !hasProgress)) return 2;
-  if (hasProgress) return 1;
+  if (hasProgress) return 0;
   return 0;
 }
 
