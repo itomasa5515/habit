@@ -336,6 +336,15 @@ h3 {
   color: var(--accent);
 }
 
+.tag.time-tag {
+  background: #ece7dc;
+  color: #4b554f;
+}
+
+.mobile-planned-time {
+  display: none;
+}
+
 .benefit-box {
   display: grid;
   gap: 8px;
@@ -1038,6 +1047,14 @@ h3 {
   .habit-title {
     margin-bottom: 0;
     font-size: 18px;
+  }
+
+  .mobile-planned-time {
+    display: block;
+    margin: 4px 0 0;
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 800;
   }
 
   .log-state {

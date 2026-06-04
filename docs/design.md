@@ -315,6 +315,7 @@ create table habits (
   if_trigger text not null,
   then_action text not null,
   habit_mode text not null default 'single' check (habit_mode in ('single', 'routine')),
+  planned_time time,
   steps jsonb not null default '[]'::jsonb,
   minimum_step_id text,
   minimum_success text not null,

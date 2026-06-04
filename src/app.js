@@ -82,6 +82,7 @@ function loadState() {
         ifTrigger: "朝コーヒーを淹れたら",
         thenAction: "肩と背中を3分伸ばす",
         habitMode: "routine",
+        plannedTime: "07:00",
         steps: [
           { id: crypto.randomUUID(), type: "task", title: "水を一杯飲む", growthType: "maintain", currentTargetValue: 1, currentTargetUnit: "杯" },
           { id: crypto.randomUUID(), type: "task", title: "体重計に乗る", growthType: "maintain", currentTargetValue: 1, currentTargetUnit: "回" },
@@ -192,6 +193,7 @@ function normalizeHabit(habit) {
   return {
     ...habit,
     habitMode: habit.habitMode || (steps.length > 1 ? "routine" : "single"),
+    plannedTime: normalizePlannedTime(habit.plannedTime),
     steps,
     minimumStepId,
     minimumSuccess: habit.minimumSuccess || getMinimumStepLabel(steps, minimumStepId),
@@ -310,6 +312,22 @@ function formatDate(dateKey) {
     day: "numeric",
     weekday: "short",
   }).format(date);
+}
+
+function normalizePlannedTime(value) {
+  const text = String(value || "").trim();
+  if (!/^\d{2}:\d{2}$/.test(text)) return "";
+
+  const [hour, minute] = text.split(":").map(Number);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return "";
+  return text;
+}
+
+function formatPlannedTime(value) {
+  const time = normalizePlannedTime(value);
+  if (!time) return "時間未設定";
+  const [hour, minute] = time.split(":");
+  return `${Number(hour)}:${minute}`;
 }
 
 function isHoliday(dateKey) {
@@ -791,6 +809,7 @@ function handleHabitSubmit(event) {
     ifTrigger: String(formData.get("ifTrigger")).trim(),
     thenAction: String(formData.get("thenAction")).trim(),
     habitMode: String(formData.get("habitMode")),
+    plannedTime: normalizePlannedTime(formData.get("plannedTime")),
     steps,
     minimumStepId: minimumStep?.id || "",
     minimumSuccess: minimumStep ? getMinimumStepLabel(steps, minimumStep.id) : "",
@@ -1258,7 +1277,36 @@ function renderBenefitItem(benefit) {
 
 function todayHabits() {
   const today = toDateKey(new Date());
-  return state.habits.filter((habit) => isTargetDate(habit, today));
+  return state.habits
+    .filter((habit) => isTargetDate(habit, today))
+    .sort((a, b) => compareTodayHabits(a, b, today));
+}
+
+function compareTodayHabits(a, b, dateKey) {
+  const rankDiff = getTodaySortRank(a, dateKey) - getTodaySortRank(b, dateKey);
+  if (rankDiff) return rankDiff;
+
+  const timeDiff = getPlannedTimeSortValue(a) - getPlannedTimeSortValue(b);
+  if (timeDiff) return timeDiff;
+
+  return String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+}
+
+function getTodaySortRank(habit, dateKey) {
+  const log = getLog(habit.id, dateKey);
+  if (!log) return 0;
+
+  const hasProgress = getCompletedStepIds(log, habit).length > 0 || Object.keys(getBranchSelections(log)).length > 0;
+  if (log.status === "done" || log.status === "skipped" || (log.status === "missed" && !hasProgress)) return 2;
+  if (hasProgress) return 1;
+  return 0;
+}
+
+function getPlannedTimeSortValue(habit) {
+  const time = normalizePlannedTime(habit.plannedTime);
+  if (!time) return 24 * 60 + 1;
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
 }
 
 function overallRate() {
@@ -1389,6 +1437,7 @@ function renderTodayCard(habit) {
       <div class="habit-card-header">
         <div>
           <h3 class="habit-title">${escapeHtml(habit.title)}</h3>
+          <p class="mobile-planned-time">${escapeHtml(formatPlannedTime(habit.plannedTime))}</p>
           <p class="rule desktop-detail">もし ${escapeHtml(habit.ifTrigger)}、${escapeHtml(habit.thenAction)}</p>
         </div>
         <div class="log-state ${displayStatus.className}">${displayStatus.label}</div>
@@ -1409,6 +1458,7 @@ function renderTodayCard(habit) {
           : `<p class="mobile-next-step is-complete"><span>完了</span>今日のステップは終わっています</p>`
       }
       <div class="tag-list desktop-detail">
+        <span class="tag time-tag">${escapeHtml(formatPlannedTime(habit.plannedTime))}</span>
         <span class="tag">${escapeHtml(frequencyLabels[habit.frequencyType])}</span>
         <span class="tag">${habit.habitMode === "routine" ? "ルーティン" : "単発"}</span>
         <span class="tag blue">最小: ${escapeHtml(minimumLabel)}</span>
@@ -1432,6 +1482,7 @@ function renderTodayCard(habit) {
         <summary>理由・詳細</summary>
         <p class="rule">もし ${escapeHtml(habit.ifTrigger)}、${escapeHtml(habit.thenAction)}</p>
         <div class="tag-list">
+          <span class="tag time-tag">${escapeHtml(formatPlannedTime(habit.plannedTime))}</span>
           <span class="tag">${escapeHtml(frequencyLabels[habit.frequencyType])}</span>
           <span class="tag">${habit.habitMode === "routine" ? "ルーティン" : "単発"}</span>
           <span class="tag blue">最小: ${escapeHtml(minimumLabel)}</span>
@@ -1550,6 +1601,7 @@ function renderHabitListCard(habit) {
         <div class="log-state">${stats.successRate}%</div>
       </div>
       <div class="tag-list">
+        <span class="tag time-tag">${escapeHtml(formatPlannedTime(habit.plannedTime))}</span>
         <span class="tag">${escapeHtml(frequencyLabels[habit.frequencyType])}</span>
         <span class="tag">${habit.habitMode === "routine" ? `${getHabitSteps(habit).length}ステップ` : "単発"}</span>
         <span class="tag blue">${habit.reviewIntervalDays}日レビュー</span>
@@ -1807,13 +1859,20 @@ function renderDrawer() {
             <span>if条件</span>
             <input name="ifTrigger" value="${escapeHtml(habit?.ifTrigger || "")}" placeholder="例: 朝コーヒーを淹れたら" required />
           </label>
-          <label class="field">
-            <span>習慣タイプ</span>
-            <select name="habitMode">
-              ${option("single", "単発習慣", habit?.habitMode || "single")}
-              ${option("routine", "ルーティン習慣", habit?.habitMode || "single")}
-            </select>
-          </label>
+          <div class="form-grid">
+            <label class="field">
+              <span>およその実施時間</span>
+              <input name="plannedTime" type="time" value="${escapeHtml(habit?.plannedTime || "")}" />
+              <small>今日画面はこの時間順に並び、記録済みのものは下へ移動します。</small>
+            </label>
+            <label class="field">
+              <span>習慣タイプ</span>
+              <select name="habitMode">
+                ${option("single", "単発習慣", habit?.habitMode || "single")}
+                ${option("routine", "ルーティン習慣", habit?.habitMode || "single")}
+              </select>
+            </label>
+          </div>
           <div class="field">
             <span>ステップ</span>
             ${renderStepEditor(habit)}
