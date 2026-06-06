@@ -426,6 +426,7 @@ h3 {
 
 .mobile-today-summary,
 .mobile-next-step,
+.mobile-focus-steps,
 .mobile-details {
   display: none;
 }
@@ -703,6 +704,11 @@ h3 {
   display: grid;
   gap: 14px;
   padding: 18px;
+}
+
+.desktop-review-analysis {
+  display: grid;
+  gap: 14px;
 }
 
 .settings-layout {
@@ -1008,6 +1014,10 @@ h3 {
     font-size: 24px;
   }
 
+  .review-card .review-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .toolbar {
     gap: 10px;
     margin: 16px 0 10px;
@@ -1064,6 +1074,14 @@ h3 {
   }
 
   .desktop-detail {
+    display: none;
+  }
+
+  .desktop-review-analysis {
+    display: none;
+  }
+
+  .desktop-step-list {
     display: none;
   }
 
@@ -1131,6 +1149,11 @@ h3 {
     gap: 7px;
   }
 
+  .mobile-focus-steps {
+    display: grid;
+    gap: 7px;
+  }
+
   .step-item {
     grid-template-columns: 24px 28px minmax(0, 1fr);
     min-height: 52px;
@@ -1184,6 +1207,33 @@ h3 {
 
   .mobile-details[open] summary {
     margin: 0 -10px;
+  }
+
+  .mobile-step-details {
+    background: var(--surface-strong);
+  }
+
+  .mobile-step-details[open] {
+    display: grid;
+  }
+
+  .mobile-review-details {
+    display: block;
+  }
+
+  .mobile-review-details[open] {
+    display: grid;
+  }
+
+  .today-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.85fr) minmax(0, 0.85fr);
+    gap: 8px;
+  }
+
+  .today-actions .btn {
+    min-width: 0;
+    padding-inline: 8px;
   }
 
   .button-row {

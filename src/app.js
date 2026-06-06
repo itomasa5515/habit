@@ -1552,6 +1552,8 @@ function renderTodayCard(habit) {
   const displayStatus = getLogDisplayStatus(log, habit);
   const minimumLabel = getMinimumStepLabel(steps, habit.minimumStepId);
   const mobileSummary = getMobileTodaySummary(habit, steps, completedStepIds);
+  const mobileFocusSteps = getMobileFocusSteps(steps, completedStepIds);
+  const hiddenStepCount = Math.max(0, steps.length - mobileFocusSteps.length);
 
   return `
     <article class="card habit-card">
@@ -1585,11 +1587,24 @@ function renderTodayCard(habit) {
         <span class="tag blue">最小: ${escapeHtml(minimumLabel)}</span>
         <span class="tag accent">${escapeHtml(targetLabel(habit))}</span>
       </div>
-      <div class="step-list">
+      <div class="step-list desktop-step-list">
         ${steps
           .map((step, index) => renderTodayStep(habit, step, index, completedStepIds, branchSelections))
           .join("")}
       </div>
+      <div class="mobile-focus-steps">
+        ${mobileFocusSteps
+          .map(({ step, index }) => renderTodayStep(habit, step, index, completedStepIds, branchSelections))
+          .join("")}
+      </div>
+      <details class="mobile-details mobile-step-details">
+        <summary>すべてのステップ${hiddenStepCount ? `（残り${hiddenStepCount}件）` : ""}</summary>
+        <div class="step-list">
+          ${steps
+            .map((step, index) => renderTodayStep(habit, step, index, completedStepIds, branchSelections))
+            .join("")}
+        </div>
+      </details>
       <div class="desktop-detail">
         ${renderBenefitLibrary(habit, { title: "今日やる理由", featured: true, limit: 3 })}
       </div>
@@ -1615,13 +1630,22 @@ function renderTodayCard(habit) {
         </div>
         <p class="save-note">ステップや分岐を操作すると、その時点で保存されます。</p>
       </details>
-      <div class="button-row">
+      <div class="button-row today-actions">
         <button class="btn primary" data-log="${habit.id}" data-status="done">すべて達成</button>
-        <button class="btn" data-log="${habit.id}" data-status="missed">すべて未達</button>
+        <button class="btn" data-log="${habit.id}" data-status="missed">未達</button>
         <button class="btn" data-log="${habit.id}" data-status="skipped">スキップ</button>
       </div>
     </article>
   `;
+}
+
+function getMobileFocusSteps(steps, completedStepIds) {
+  const completed = new Set(completedStepIds);
+  const indexedSteps = steps.map((step, index) => ({ step, index }));
+  const nextIndex = indexedSteps.findIndex(({ step }) => !completed.has(getCompletionId(step)));
+  if (nextIndex < 0) return indexedSteps.slice(-Math.min(2, indexedSteps.length));
+
+  return indexedSteps.slice(nextIndex, nextIndex + 2);
 }
 
 function getMobileTodaySummary(habit, steps, completedStepIds) {
@@ -1826,8 +1850,15 @@ function renderReviewCard(habit) {
       <div class="progress">
         <div class="progress-bar" style="width: ${stats.successRate}%"></div>
       </div>
-      ${renderStepAnalysis(stats)}
-      ${renderBranchAnalysis(stats)}
+      <div class="desktop-review-analysis">
+        ${renderStepAnalysis(stats)}
+        ${renderBranchAnalysis(stats)}
+      </div>
+      <details class="mobile-details mobile-review-details">
+        <summary>詳しい分析</summary>
+        ${renderStepAnalysis(stats)}
+        ${renderBranchAnalysis(stats)}
+      </details>
       <div class="suggestion">${escapeHtml(getSuggestionText(suggestion, habit))}</div>
       <form class="review-form" data-review="${habit.id}">
         <div class="form-grid">
