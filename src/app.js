@@ -288,6 +288,52 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function getBackupPayload() {
+  return {
+    app: "Habit Grow",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    storageKey: STORAGE_KEY,
+    state,
+  };
+}
+
+function exportBackup() {
+  const payload = JSON.stringify(getBackupPayload(), null, 2);
+  const blob = new Blob([payload], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const date = toDateKey(new Date());
+
+  link.href = url;
+  link.download = `habit-grow-backup-${date}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function importBackup(file) {
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const importedState = normalizeState(parsed?.state || parsed);
+    const confirmed = confirm("現在のブラウザ保存データを、選択したバックアップで置き換えますか？");
+    if (!confirmed) return;
+
+    state = importedState;
+    saveState();
+    activeView = "today";
+    editingHabitId = null;
+    pendingCopiedHabitId = null;
+    render();
+  } catch {
+    alert("バックアップJSONを読み込めませんでした。ファイルの内容を確認してください。");
+  }
+}
+
 function toDateKey(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -1797,6 +1843,18 @@ function renderSettings() {
       </div>
       <div class="settings-layout">
         <article class="card settings-card">
+          <h3>JSONバックアップ</h3>
+          <p class="rule">開発中の安全策として、現在の習慣・記録・レビュー・設定をJSONで保存できます。</p>
+          <div class="button-row">
+            <button class="btn primary" type="button" data-export-backup>バックアップを書き出す</button>
+          </div>
+          <label class="field">
+            <span>バックアップを読み込む</span>
+            <input type="file" accept="application/json,.json" data-import-backup />
+            <small>読み込むと、このブラウザに保存されている現在のデータを置き換えます。</small>
+          </label>
+        </article>
+        <article class="card settings-card">
           <h3>祝日リスト</h3>
           <p class="rule">1行に1件、日付と名前をカンマ区切りで入力します。</p>
           <form class="form" id="holiday-form">
@@ -2182,6 +2240,11 @@ function bindEvents() {
   document.querySelector("#holiday-form")?.addEventListener("submit", handleHolidaySubmit);
 
   document.querySelector("[data-reset-holidays]")?.addEventListener("click", resetHolidays);
+  document.querySelector("[data-export-backup]")?.addEventListener("click", exportBackup);
+  document.querySelector("[data-import-backup]")?.addEventListener("change", (event) => {
+    importBackup(event.target.files?.[0]);
+    event.target.value = "";
+  });
 
   document.querySelectorAll(".review-form").forEach((form) => {
     form.addEventListener("submit", (event) => {
