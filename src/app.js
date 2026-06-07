@@ -1582,6 +1582,7 @@ function renderToday() {
         <div class="hero-panel">
           <p class="eyebrow">${formatDate(selectedDate)}${todayHolidayName ? ` / ${escapeHtml(todayHolidayName)}` : ""}</p>
           <h1>${isToday ? "今日" : "この日"}の一歩を、達成できる大きさで。</h1>
+          ${renderLogDateControls(selectedDate, actualToday)}
           <p class="lead">
             if-thenルールで迷う時間を減らし、最小達成条件で続ける入口を残します。
             完璧な日より、戻ってこられる設計を優先します。
@@ -1606,7 +1607,6 @@ function renderToday() {
         </div>
         <button class="btn primary" data-open-drawer>習慣を追加</button>
       </div>
-      ${renderLogDateControls(selectedDate, actualToday)}
 
       ${
         habits.length
@@ -1618,15 +1618,22 @@ function renderToday() {
 }
 
 function renderLogDateControls(selectedDate, actualToday) {
+  const isToday = selectedDate === actualToday;
   return `
-    <div class="date-controls" aria-label="記録する日">
-      <button class="icon-btn" type="button" data-log-date-move="-1" aria-label="前の日">‹</button>
-      <label class="field date-field">
-        <span>記録する日</span>
-        <input type="date" value="${escapeHtml(selectedDate)}" data-log-date />
-      </label>
-      <button class="icon-btn" type="button" data-log-date-move="1" aria-label="次の日">›</button>
-      <button class="btn" type="button" data-log-date-today ${selectedDate === actualToday ? "disabled" : ""}>今日</button>
+    <div class="date-control-panel" aria-label="記録日を変更">
+      <div class="date-control-heading">
+        <span>記録日を変更</span>
+        <strong>${isToday ? "今日を記録中" : "過去日を修正中"}</strong>
+      </div>
+      <div class="date-controls">
+        <button class="icon-btn" type="button" data-log-date-move="-1" aria-label="前の日">‹</button>
+        <label class="field date-field">
+          <span>記録する日</span>
+          <input type="date" value="${escapeHtml(selectedDate)}" data-log-date />
+        </label>
+        <button class="icon-btn" type="button" data-log-date-move="1" aria-label="次の日">›</button>
+        <button class="btn" type="button" data-log-date-today ${isToday ? "disabled" : ""}>今日</button>
+      </div>
     </div>
   `;
 }
