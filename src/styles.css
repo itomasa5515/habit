@@ -235,6 +235,24 @@ h3 {
   color: var(--muted);
 }
 
+.date-controls {
+  display: grid;
+  grid-template-columns: 40px minmax(160px, 1fr) 40px auto;
+  gap: 8px;
+  align-items: end;
+  margin: -4px 0 14px;
+}
+
+.date-field {
+  gap: 5px;
+}
+
+.date-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;
@@ -269,6 +287,11 @@ h3 {
   background: var(--danger-soft);
   border-color: #e3baba;
   color: var(--danger);
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
 }
 
 .grid {
@@ -1031,6 +1054,16 @@ h3 {
     font-size: 13px;
   }
 
+  .date-controls {
+    grid-template-columns: 44px minmax(0, 1fr) 44px 64px;
+    margin-bottom: 10px;
+  }
+
+  .date-controls .btn,
+  .date-controls .icon-btn {
+    min-height: 44px;
+  }
+
   .hero-panel,
   .habit-card,
   .review-card {
@@ -1227,7 +1260,7 @@ h3 {
 
   .today-actions {
     display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.85fr) minmax(0, 0.85fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 

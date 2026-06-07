@@ -63,6 +63,7 @@ let state = loadState();
 let activeView = "today";
 let editingHabitId = null;
 let pendingCopiedHabitId = null;
+let selectedLogDate = toDateKey(new Date());
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -359,6 +360,10 @@ function addDays(dateKey, amount) {
   return toDateKey(date);
 }
 
+function getSelectedLogDate() {
+  return normalizeDateKey(selectedLogDate) || toDateKey(new Date());
+}
+
 function daysBetween(startDate, endDate) {
   const start = parseDate(startDate);
   const end = parseDate(endDate);
@@ -509,7 +514,7 @@ function isMinimumCleared(habit, completedStepIds, dateKey = toDateKey(new Date(
 }
 
 function upsertLog(habitId, status, extra = {}) {
-  const logDate = toDateKey(new Date());
+  const logDate = normalizeDateKey(extra.logDate) || getSelectedLogDate();
   const habit = state.habits.find((item) => item.id === habitId);
   const steps = habit ? getActiveHabitSteps(habit, logDate) : [];
   const existing = getLog(habitId, logDate);
@@ -542,6 +547,15 @@ function upsertLog(habitId, status, extra = {}) {
   render();
 }
 
+function clearLog(habitId, dateKey = getSelectedLogDate()) {
+  const normalizedDate = normalizeDateKey(dateKey);
+  if (!normalizedDate) return;
+
+  state.logs = state.logs.filter((log) => !(log.habitId === habitId && log.logDate === normalizedDate));
+  saveState();
+  render();
+}
+
 function getDoneBranchSelections(steps, existingLog) {
   const existingSelections = getBranchSelections(existingLog);
   return Object.fromEntries(
@@ -555,10 +569,10 @@ function toggleStep(habitId, stepId) {
   const habit = state.habits.find((item) => item.id === habitId);
   if (!habit) return;
 
-  const today = toDateKey(new Date());
-  const steps = getActiveHabitSteps(habit, today);
-  const existing = getLog(habitId, today);
-  const completed = new Set(getCompletedStepIds(existing, habit));
+  const logDate = getSelectedLogDate();
+  const steps = getActiveHabitSteps(habit, logDate);
+  const existing = getLog(habitId, logDate);
+  const completed = new Set(getCompletedStepIds(existing, habit, logDate));
 
   if (completed.has(stepId)) {
     completed.delete(stepId);
@@ -571,17 +585,17 @@ function toggleStep(habitId, stepId) {
     .map(getCompletionId);
   const status = completedStepIds.length === steps.length ? "done" : "missed";
 
-  upsertLog(habitId, status, { completedStepIds, branchSelections: getBranchSelections(existing) });
+  upsertLog(habitId, status, { logDate, completedStepIds, branchSelections: getBranchSelections(existing) });
 }
 
 function selectBranchOption(habitId, stepId, optionId) {
   const habit = state.habits.find((item) => item.id === habitId);
   if (!habit) return;
 
-  const today = toDateKey(new Date());
-  const steps = getActiveHabitSteps(habit, today);
-  const existing = getLog(habitId, today);
-  const completed = new Set(getCompletedStepIds(existing, habit));
+  const logDate = getSelectedLogDate();
+  const steps = getActiveHabitSteps(habit, logDate);
+  const existing = getLog(habitId, logDate);
+  const completed = new Set(getCompletedStepIds(existing, habit, logDate));
   const branchSelections = { ...getBranchSelections(existing), [stepId]: optionId };
 
   completed.add(stepId);
@@ -591,17 +605,17 @@ function selectBranchOption(habitId, stepId, optionId) {
     .map(getCompletionId);
   const status = completedStepIds.length === steps.length ? "done" : "missed";
 
-  upsertLog(habitId, status, { completedStepIds, branchSelections });
+  upsertLog(habitId, status, { logDate, completedStepIds, branchSelections });
 }
 
 function clearBranchOption(habitId, stepId) {
   const habit = state.habits.find((item) => item.id === habitId);
   if (!habit) return;
 
-  const today = toDateKey(new Date());
-  const steps = getActiveHabitSteps(habit, today);
-  const existing = getLog(habitId, today);
-  const completed = new Set(getCompletedStepIds(existing, habit));
+  const logDate = getSelectedLogDate();
+  const steps = getActiveHabitSteps(habit, logDate);
+  const existing = getLog(habitId, logDate);
+  const completed = new Set(getCompletedStepIds(existing, habit, logDate));
   const branchSelections = { ...getBranchSelections(existing) };
 
   completed.delete(stepId);
@@ -612,7 +626,7 @@ function clearBranchOption(habitId, stepId) {
     .map(getCompletionId);
   const status = completedStepIds.length === steps.length ? "done" : "missed";
 
-  upsertLog(habitId, status, { completedStepIds, branchSelections });
+  upsertLog(habitId, status, { logDate, completedStepIds, branchSelections });
 }
 
 function deleteHabit(habitId) {
@@ -864,6 +878,18 @@ function createReview(habitId, perceivedDifficulty, userDecision) {
 function setView(view) {
   activeView = view;
   render();
+}
+
+function setLogDate(dateKey) {
+  const normalized = normalizeDateKey(dateKey);
+  if (!normalized) return;
+
+  selectedLogDate = normalized;
+  render();
+}
+
+function moveLogDate(amount) {
+  setLogDate(addDays(getSelectedLogDate(), amount));
 }
 
 function openDrawer(habitId = null) {
@@ -1442,7 +1468,7 @@ function renderBenefitItem(benefit) {
 }
 
 function todayHabits() {
-  const today = toDateKey(new Date());
+  const today = getSelectedLogDate();
   return state.habits
     .filter((habit) => isTargetDate(habit, today))
     .filter((habit) => getActiveHabitSteps(habit, today).length > 0)
@@ -1543,17 +1569,19 @@ function navButton(view, label) {
 
 function renderToday() {
   const habits = todayHabits();
-  const doneCount = habits.filter((habit) => getLog(habit.id, toDateKey(new Date()))?.status === "done").length;
+  const selectedDate = getSelectedLogDate();
+  const actualToday = toDateKey(new Date());
+  const isToday = selectedDate === actualToday;
+  const doneCount = habits.filter((habit) => getLog(habit.id, selectedDate)?.status === "done").length;
   const completion = habits.length ? Math.round((doneCount / habits.length) * 100) : 0;
-  const today = toDateKey(new Date());
-  const todayHolidayName = getHolidayName(today);
+  const todayHolidayName = getHolidayName(selectedDate);
 
   return `
     <section class="section ${activeView === "today" ? "is-active" : ""}">
       <div class="hero">
         <div class="hero-panel">
-          <p class="eyebrow">${formatDate(today)}${todayHolidayName ? ` / ${escapeHtml(todayHolidayName)}` : ""}</p>
-          <h1>今日の一歩を、達成できる大きさで。</h1>
+          <p class="eyebrow">${formatDate(selectedDate)}${todayHolidayName ? ` / ${escapeHtml(todayHolidayName)}` : ""}</p>
+          <h1>${isToday ? "今日" : "この日"}の一歩を、達成できる大きさで。</h1>
           <p class="lead">
             if-thenルールで迷う時間を減らし、最小達成条件で続ける入口を残します。
             完璧な日より、戻ってこられる設計を優先します。
@@ -1561,11 +1589,11 @@ function renderToday() {
         </div>
         <aside class="side-panel" aria-label="今日の概要">
           <div class="metric">
-            <p class="metric-label">今日の達成</p>
+            <p class="metric-label">${isToday ? "今日の達成" : "この日の達成"}</p>
             <p class="metric-value">${doneCount}/${habits.length}</p>
           </div>
           <div class="metric">
-            <p class="metric-label">今日の達成率</p>
+            <p class="metric-label">${isToday ? "今日の達成率" : "この日の達成率"}</p>
             <p class="metric-value">${completion}%</p>
           </div>
         </aside>
@@ -1573,23 +1601,38 @@ function renderToday() {
 
       <div class="toolbar">
         <div>
-          <h2>今日の習慣</h2>
-          <p>まずは最小達成条件だけでもOKです。</p>
+          <h2>${isToday ? "今日の習慣" : `${formatDate(selectedDate)}の記録`}</h2>
+          <p>${isToday ? "まずは最小達成条件だけでもOKです。" : "過去の日付の実施有無を修正できます。"}</p>
         </div>
         <button class="btn primary" data-open-drawer>習慣を追加</button>
       </div>
+      ${renderLogDateControls(selectedDate, actualToday)}
 
       ${
         habits.length
           ? `<div class="grid">${habits.map(renderTodayCard).join("")}</div>`
-          : renderEmpty("今日の対象習慣はありません", "新しい習慣を追加すると、ここに今日やることが表示されます。")
+          : renderEmpty(isToday ? "今日の対象習慣はありません" : "この日の対象習慣はありません", "新しい習慣を追加すると、ここに対象日のやることが表示されます。")
       }
     </section>
   `;
 }
 
+function renderLogDateControls(selectedDate, actualToday) {
+  return `
+    <div class="date-controls" aria-label="記録する日">
+      <button class="icon-btn" type="button" data-log-date-move="-1" aria-label="前の日">‹</button>
+      <label class="field date-field">
+        <span>記録する日</span>
+        <input type="date" value="${escapeHtml(selectedDate)}" data-log-date />
+      </label>
+      <button class="icon-btn" type="button" data-log-date-move="1" aria-label="次の日">›</button>
+      <button class="btn" type="button" data-log-date-today ${selectedDate === actualToday ? "disabled" : ""}>今日</button>
+    </div>
+  `;
+}
+
 function renderTodayCard(habit) {
-  const today = toDateKey(new Date());
+  const today = getSelectedLogDate();
   const log = getLog(habit.id, today);
   const stats = getCurrentStats(habit);
   const steps = getActiveHabitSteps(habit, today);
@@ -1680,6 +1723,7 @@ function renderTodayCard(habit) {
         <button class="btn primary" data-log="${habit.id}" data-status="done">すべて達成</button>
         <button class="btn" data-log="${habit.id}" data-status="missed">未達</button>
         <button class="btn" data-log="${habit.id}" data-status="skipped">スキップ</button>
+        ${log ? `<button class="btn ghost" data-clear-log="${habit.id}">記録を消す</button>` : ""}
       </div>
     </article>
   `;
@@ -2183,8 +2227,24 @@ function bindEvents() {
     button.addEventListener("click", () => {
       const status = button.dataset.status;
       const missedReason = status === "missed" ? promptMissedReason() : "";
-      upsertLog(button.dataset.log, status, { missedReason });
+      upsertLog(button.dataset.log, status, { logDate: getSelectedLogDate(), missedReason });
     });
+  });
+
+  document.querySelectorAll("[data-clear-log]").forEach((button) => {
+    button.addEventListener("click", () => clearLog(button.dataset.clearLog, getSelectedLogDate()));
+  });
+
+  document.querySelector("[data-log-date]")?.addEventListener("change", (event) => {
+    setLogDate(event.target.value);
+  });
+
+  document.querySelectorAll("[data-log-date-move]").forEach((button) => {
+    button.addEventListener("click", () => moveLogDate(Number(button.dataset.logDateMove || 0)));
+  });
+
+  document.querySelector("[data-log-date-today]")?.addEventListener("click", () => {
+    setLogDate(toDateKey(new Date()));
   });
 
   document.querySelectorAll("[data-step-toggle]").forEach((checkbox) => {
